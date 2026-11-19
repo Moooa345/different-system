@@ -1,0 +1,159 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Activity, ArrowDown, CreditCard, Search, ShoppingBag, Truck } from 'lucide-react';
+import { toast } from 'sonner';
+import { Link } from 'react-router-dom';
+import type { Product, ProductVariant } from '../../lib/types';
+import { supabase } from '../../lib/supabase';
+import { useTranslation } from '../../i18n/useTranslation';
+import { useStoreCart } from '../../store/useStoreCart';
+import { StorefrontHeader } from './StorefrontHeader';
+import { StoreCartDrawer } from './StoreCartDrawer';
+
+type CategoryFilter = 'all' | 'sneakers' | 'bags';
+type StoreVariant = Pick<ProductVariant, 'id' | 'product_id' | 'sku' | 'color' | 'size' | 'image_url' | 'unit_sell_price' | 'stock_qty' | 'is_active'>;
+type StoreProduct = Product & { variants: StoreVariant[] };
+
+export function StorefrontPage() {
+  const { t, dir, lang, formatCurrency } = useTranslation();
+  const syncStock = useStoreCart((state) => state.syncStock);
+  const updateVariantStock = useStoreCart((state) => state.updateVariantStock);
+  const removeVariants = useStoreCart((state) => state.removeVariants);
+  const cartItems = useStoreCart((state) => state.items);
+  const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState<CategoryFilter>('all');
+  const [cartOpen, setCartOpen] = useState(false);
+  const catalogRef = useRef<StoreProduct[]>([]);
+  const loadErrorMessage = t('storeLoadError');
+
+  const loadCatalog = useCallback(async (showError = true) => {
+    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
+      supabase.from('products').select('id, name, description, category, brand, image_url, image_urls, gallery_urls, style_tags, is_active, created_at, updated_at').eq('is_active', true).order('created_at', { ascending: false }),
+      supabase.from('product_variants').select('id, product_id, sku, color, size, image_url, unit_sell_price, stock_qty, is_active').eq('is_active', true),
+    ]);
+    if (productError || variantError) {
+      if (showError) toast.error(loadErrorMessage);
+      setLoading(false);
+      return;
+    }
+    const activeProducts = productRows ?? [];
+    const activeProductIds = new Set(activeProducts.map((product) => product.id));
+    const activeVariants = (variantRows ?? []).filter((variant) => activeProductIds.has(variant.product_id));
+    const grouped = new Map<string, StoreVariant[]>();
+    for (const variant of activeVariants) grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
+    syncStock(Object.fromEntries(activeVariants.map((variant) => [variant.id, variant.stock_qty])));
+    const nextProducts = activeProducts.map((product) => ({ ...product, variants: grouped.get(product.id) ?? [] }));
+    catalogRef.current = nextProducts;
+    setProducts(nextProducts);
+    setLoading(false);
+  }, [loadErrorMessage, syncStock]);
+
+  useEffect(() => {
+    void loadCatalog();
+    let active = true;
+    const stockChannel = supabase.channel('storefront:stock', { config: { private: true } })
+      .on('broadcast', { event: 'stock_update' }, ({ payload }) => {
+        const variantId = payload?.variant_id;
+        const stockQty = payload?.stock_qty;
+        const isActive = payload?.is_active;
+        if (typeof variantId !== 'string' || !Number.isInteger(stockQty) || typeof isActive !== 'boolean') return;
+        const knownVariant = catalogRef.current.some((product) => product.variants.some((variant) => variant.id === variantId));
+        if (isActive && !knownVariant) { void loadCatalog(false); return; }
+        const nextProducts = catalogRef.current.map((product) => ({
+          ...product,
+          variants: product.variants.map((variant) => variant.id === variantId
+            ? { ...variant, stock_qty: stockQty as number, is_active: isActive }
+            : variant),
+        }));
+        catalogRef.current = nextProducts;
+        setProducts(nextProducts);
+        updateVariantStock(variantId, stockQty as number, isActive);
+      })
+      .on('broadcast', { event: 'product_status' }, ({ payload }) => {
+        const productId = payload?.product_id;
+        const isActive = payload?.is_active;
+        if (typeof productId !== 'string' || typeof isActive !== 'boolean') return;
+        if (!isActive) {
+          const product = catalogRef.current.find((entry) => entry.id === productId);
+          if (product) removeVariants(product.variants.map((variant) => variant.id));
+          catalogRef.current = catalogRef.current.filter((entry) => entry.id !== productId);
+          setProducts((current) => current.filter((entry) => entry.id !== productId));
+          return;
+        }
+        void loadCatalog(false);
+      });
+    const logStatus = (name: string) => (status: string, error?: Error) => {
+      if (!import.meta.env.DEV) return;
+      if (status === 'SUBSCRIBED') console.info(`[realtime] ${name}: ${status}`);
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') console.error(`[realtime] ${name}: ${status}`, error);
+    };
+    void supabase.realtime.setAuth().then(() => {
+      if (!active) return;
+      stockChannel.subscribe(logStatus('storefront stock broadcast'));
+    }).catch((error: unknown) => {
+      if (import.meta.env.DEV) console.error('[realtime] Could not set channel auth', error);
+    });
+    return () => {
+      active = false;
+      void supabase.removeChannel(stockChannel);
+    };
+  }, [loadCatalog, updateVariantStock, removeVariants]);
+
+  const visibleProducts = useMemo(() => {
+    const value = query.trim().toLocaleLowerCase(lang);
+    return products.filter((product) => {
+      if (category !== 'all' && product.category !== category) return false;
+      if (!value) return true;
+      return product.name.toLocaleLowerCase(lang).includes(value) || product.variants.some((variant) => variant.sku.toLocaleLowerCase(lang).includes(value));
+    }).map((product) => {
+      const value = query.trim().toLocaleLowerCase(lang);
+      const variants = value && !product.name.toLocaleLowerCase(lang).includes(value)
+        ? product.variants.filter((variant) => variant.sku.toLocaleLowerCase(lang).includes(value))
+        : product.variants;
+      return { ...product, variants };
+    });
+  }, [products, query, category, lang]);
+
+  const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
+  return <div dir={dir} className="min-h-screen bg-stone-50 text-stone-900">
+    <StorefrontHeader cartCount={cartCount} category={category} onCategoryChange={setCategory} onOpenCart={() => setCartOpen(true)} />
+    <main id="catalog" className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-10">
+      <section className="mb-8 overflow-hidden rounded-[2rem] border border-rose-100 bg-gradient-to-br from-rose-100 via-orange-50 to-stone-100 px-5 py-6 shadow-sm sm:px-9 sm:py-8">
+        <div className="grid items-center gap-6 lg:grid-cols-[1fr_auto]">
+          <div className="max-w-2xl"><p className="inline-flex rounded-full bg-white/70 px-3 py-1 text-xs font-bold text-rose-700">{t('brand')}</p><h1 className="mt-3 text-3xl font-black leading-tight tracking-tight text-stone-900 sm:text-4xl">{t('storeTagline')}</h1><p className="mt-2 text-sm leading-7 text-stone-600">{t('heroFashionLine')}</p><button type="button" onClick={() => document.getElementById('catalog-products')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-stone-800">{t('shopNow')}<ArrowDown className="size-4" /></button></div>
+          <div className="hidden min-w-48 rounded-3xl border border-white/60 bg-white/45 p-5 text-end backdrop-blur-sm lg:block"><span className="ms-auto grid size-14 place-items-center rounded-2xl bg-rose-100 text-rose-700"><ShoppingBag className="size-7" /></span><p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">{t('brand')}</p><p className="mt-1 text-lg font-black text-stone-800">{t('storeCollection')}</p></div>
+        </div>
+        <div className="mt-6 grid gap-2 border-t border-rose-900/10 pt-4 sm:grid-cols-3">{[{ icon: Truck, text: t('trustShipping') }, { icon: CreditCard, text: t('trustPayments') }, { icon: Activity, text: t('trustStock') }].map(({ icon: Icon, text }) => <div key={text} className="flex items-center gap-2 text-xs font-semibold text-stone-700"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/70 text-rose-700"><Icon className="size-4" /></span>{text}</div>)}</div>
+      </section>
+
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><h2 className="text-xl font-black">{category === 'all' ? t('storeCollection') : category === 'bags' ? t('posBags') : t('posShoes')}</h2><p className="mt-1 text-sm text-stone-500">{t('storeCatalogHint')}</p></div>
+        <label className="relative w-full sm:max-w-sm"><Search className={`absolute top-3.5 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('storeSearchPlaceholder')} className={`h-12 w-full rounded-xl border border-stone-300 bg-white text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label>
+      </div>
+
+      {loading ? <div className="grid min-h-64 place-items-center rounded-2xl border border-stone-200 bg-white text-sm text-stone-500">{t('storeLoading')}</div> : visibleProducts.length === 0 ? <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-sm text-stone-500">{t('storeNoProducts')}</div> :
+        <div id="catalog-products" className="scroll-mt-24 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {visibleProducts.map((product) => {
+            const prices = product.variants.map((variant) => variant.unit_sell_price);
+            const startingPrice = prices.length ? Math.min(...prices) : 0;
+            const image = product.image_url ?? product.gallery_urls[0] ?? product.variants.find((variant) => variant.image_url)?.image_url ?? product.image_urls[0];
+            const previewColors = [...new Set(product.variants.map((variant) => variant.color?.trim() || t('oneColor')))].slice(0, 3);
+            const availableCount = product.variants.filter((variant) => variant.is_active && variant.stock_qty > 0).length;
+            return <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+              <Link to={`/product/${product.id}`} aria-label={`${t('viewProductDetails')}: ${product.name}`} className="group relative block aspect-[4/5] overflow-hidden bg-stone-100">
+                {image ? <img src={image} alt={product.name} loading="lazy" className="size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center text-stone-300"><ShoppingBag className="size-12" /></div>}
+                <span className="absolute start-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-stone-600 backdrop-blur">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span>
+              </Link>
+              <div className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-2"><Link to={`/product/${product.id}`} className="min-w-0 text-start font-bold text-stone-900 transition hover:text-rose-700"><h3 className="line-clamp-2">{product.name}</h3></Link><p className="shrink-0 text-sm font-black text-rose-700">{t('storeStartingPrice').replace('{price}', formatCurrency(startingPrice))}</p></div>
+                <div className="flex min-h-7 items-center justify-between gap-2"><div className="flex flex-wrap gap-1.5">{previewColors.map((color) => <span key={color} className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] text-stone-600">{color}</span>)}{!previewColors.length && <span className="text-xs text-stone-400">{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span>}</div><span className={`shrink-0 text-[11px] font-semibold ${availableCount ? 'text-emerald-700' : 'text-stone-400'}`}>{availableCount ? `${new Intl.NumberFormat(lang).format(availableCount)} ${t('pdpVariantsAvailable')}` : t('storeOutOfStock')}</span></div>
+                <Link to={`/product/${product.id}`} className="block border-t border-stone-100 pt-3 text-start text-xs font-bold text-rose-700">{t('viewProductDetails')} <span aria-hidden="true">{dir === 'rtl' ? '←' : '→'}</span></Link>
+              </div>
+            </article>;
+          })}
+        </div>}
+    </main>
+    <StoreCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
+  </div>;
+}
