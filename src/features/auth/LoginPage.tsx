@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { LockKeyhole, Mail } from 'lucide-react';
+import { Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { useTranslation } from '../../i18n/useTranslation';
 import { LanguageSwitcher } from '../../components/layout/LanguageSwitcher';
+import { BrandLogo } from '../../components/layout/BrandLogo';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -36,7 +37,7 @@ export function LoginPage() {
     <div className="fixed end-4 top-4"><LanguageSwitcher /></div>
     <section className="w-full max-w-md rounded-3xl border border-stone-200 bg-white p-8 shadow-xl shadow-stone-200/60">
       <div className="mb-8 text-center">
-        <div className="mx-auto mb-4 grid size-14 place-items-center rounded-2xl bg-rose-100 text-rose-700"><LockKeyhole /></div>
+        <BrandLogo size="lg" className="mb-6 justify-center" />
         <h1 className="text-2xl font-bold text-stone-900">{t('loginTitle')}</h1>
         <p className="mt-2 text-sm text-stone-500">{t('loginWelcome')}</p>
       </div>

@@ -1,7 +1,8 @@
-import { ShoppingBag, Store } from 'lucide-react';
+import { ShoppingBag } from 'lucide-react';
 import { useTranslation } from '../../i18n/useTranslation';
 import { LanguageSwitcher } from '../../components/layout/LanguageSwitcher';
 import { ThemeToggle } from '../../components/layout/ThemeToggle';
+import { BrandLogo } from '../../components/layout/BrandLogo';
 
 type CategoryFilter = 'all' | 'shoes' | 'bags';
 
@@ -24,7 +25,7 @@ export function StorefrontHeader({ cartCount, onOpenCart, category, onCategoryCh
 
   return <header dir={dir} className="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur">
     <div className="mx-auto flex min-h-16 max-w-7xl items-center gap-3 px-4 sm:px-6">
-      <a href="/" className="flex shrink-0 items-center gap-2 text-base font-black text-stone-900 sm:text-lg"><span className="grid size-9 place-items-center rounded-xl bg-rose-100 text-rose-700"><Store className="size-5" /></span><span>{t('brand')}</span></a>
+      <a href="/" aria-label={t('brand')} className="shrink-0"><BrandLogo size="sm" /></a>
       {showNavigation && <nav aria-label={t('storeCategoryNav')} className="ms-auto hidden items-center gap-1 md:flex">
         {categories.map((item) => <button key={item.value} onClick={() => onCategoryChange(item.value)} className={`rounded-full px-3 py-2 text-sm font-semibold transition ${category === item.value ? 'bg-stone-900 text-white' : 'text-stone-600 hover:bg-stone-100'}`}>{item.label}</button>)}
       </nav>}

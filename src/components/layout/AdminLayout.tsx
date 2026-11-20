@@ -7,6 +7,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import type { TranslationKey } from '../../i18n/translations';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ThemeToggle } from './ThemeToggle';
+import { BrandLogo } from './BrandLogo';
 
 const links: { to: string; key: TranslationKey; icon: typeof BarChart3 }[] = [
   { to: '/admin/dashboard', key: 'dashboard', icon: BarChart3 },
@@ -43,7 +44,8 @@ export function AdminLayout() {
     {sidebarOpen && <button className="fixed inset-0 z-40 bg-stone-950/40 lg:hidden" onClick={() => setSidebarOpen(false)} aria-label={t('closeMenu')} />}
     <aside className={`fixed inset-y-0 start-0 z-50 flex h-screen w-72 shrink-0 flex-col border-e border-stone-200 bg-white transition-all duration-200 ${sidebarOpen ? 'translate-x-0' : 'rtl:translate-x-full ltr:-translate-x-full'} lg:sticky lg:top-0 lg:!translate-x-0 ${sidebarWidth}`}>
       <div className={`flex h-20 shrink-0 items-center border-b border-stone-200 px-4 ${collapsed ? 'lg:justify-center' : 'justify-start'}`}>
-        {(!collapsed || sidebarOpen) && <a href="/admin/dashboard" className="truncate text-lg font-black text-stone-900">{t('brand')}<span className="text-rose-600">.</span></a>}
+        {(!collapsed || sidebarOpen) && <a href="/admin/dashboard" aria-label={t('brand')}><BrandLogo size="sm" /></a>}
+        {collapsed && !sidebarOpen && <a href="/admin/dashboard" aria-label={t('brand')}><BrandLogo size="sm" showWordmark={false} /></a>}
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
         {links.map(({ to, key, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setSidebarOpen(false)} title={collapsed ? t(key) : undefined} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-3 text-start text-sm font-semibold transition ${collapsed ? 'lg:justify-center' : ''} ${isActive ? 'bg-rose-50 text-rose-700' : 'text-stone-600 hover:bg-stone-100'}`}><Icon className="size-5 shrink-0" />{(!collapsed || sidebarOpen) && <span className="truncate">{t(key)}</span>}</NavLink>)}

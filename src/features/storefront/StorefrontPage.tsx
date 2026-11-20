@@ -8,6 +8,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { useStoreCart } from '../../store/useStoreCart';
 import { StorefrontHeader } from './StorefrontHeader';
 import { StoreCartDrawer } from './StoreCartDrawer';
+import { BrandLogo } from '../../components/layout/BrandLogo';
 
 type CategoryFilter = 'all' | 'shoes' | 'bags';
 type StoreVariant = Pick<ProductVariant, 'id' | 'product_id' | 'sku' | 'color' | 'size' | 'image_url' | 'unit_sell_price' | 'stock_qty' | 'is_active'>;
@@ -161,6 +162,12 @@ export function StorefrontPage() {
           })}
         </div>}
     </main>
+    <footer className="border-t border-stone-200 bg-white px-4 py-6 sm:px-6">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4">
+        <a href="/" aria-label={t('brand')}><BrandLogo size="sm" /></a>
+        <p className="text-xs text-stone-500">© {new Date().getFullYear()} Different Store</p>
+      </div>
+    </footer>
     <StoreCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
   </div>;
 }
