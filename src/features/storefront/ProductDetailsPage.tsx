@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Expand, Minus, Plus, ShoppingBag, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Expand, Minus, Plus, RefreshCw, ShoppingBag, Truck, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { Product } from '../../lib/types';
@@ -9,7 +9,7 @@ import { useStoreCart } from '../../store/useStoreCart';
 import { StorefrontHeader } from './StorefrontHeader';
 import { StoreCartDrawer } from './StoreCartDrawer';
 import { AlternativesModal } from '../../components/ui/AlternativesModal';
-import { getSimilarAlternatives, type AlternativeVariant, type TaggedProduct } from '../../utils/getSimilarAlternatives';
+import { type AlternativeVariant, type TaggedProduct } from '../../utils/getSimilarAlternatives';
 
 type ProductPageData = Product & { variants: AlternativeVariant[] };
 const NO_COLOR = '__no_color__';
@@ -34,6 +34,9 @@ export function ProductDetailsPage() {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
+  const [sizeGuideOpen, setSizeGuideOpen] = useState(false);
+  const [stickyAddVisible, setStickyAddVisible] = useState(false);
+  const mainAddButtonRef = useRef<HTMLButtonElement>(null);
   const catalogRef = useRef<TaggedProduct[]>([]);
   const variantsRef = useRef<AlternativeVariant[]>([]);
 
@@ -145,7 +148,7 @@ export function ProductDetailsPage() {
   const imageIndex = activeImage ? images.indexOf(activeImage) : -1;
   const PreviousImage = dir === 'rtl' ? ChevronRight : ChevronLeft;
   const NextImage = dir === 'rtl' ? ChevronLeft : ChevronRight;
-  const similar = product ? getSimilarAlternatives(product, selectedVariant, allProducts).similarProducts : [];
+  const related = product ? allProducts.filter((entry) => entry.id !== product.id && entry.category === product.category && entry.variants.some((variant) => variant.is_active && variant.stock_qty > 0)).slice(0, 4) : [];
 
   const moveImage = useCallback((delta: number) => {
     setActiveImage((current) => {
@@ -172,6 +175,16 @@ export function ProductDetailsPage() {
   useEffect(() => {
     if (selectedVariant) setQuantity((current) => Math.max(1, Math.min(current, Math.max(1, selectedVariant.stock_qty))));
   }, [selectedVariant?.id, selectedVariant?.stock_qty]);
+
+  useEffect(() => {
+    const target = mainAddButtonRef.current;
+    if (!target || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(([entry]) => {
+      setStickyAddVisible(!entry.isIntersecting && entry.boundingClientRect.top < 0);
+    });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [product]);
 
   function chooseColor(color: string) {
     setSelectedColor(color);
@@ -208,29 +221,38 @@ export function ProductDetailsPage() {
         <section className="min-w-0 space-y-6 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24">
           <div><span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span><h1 className="mt-3 text-2xl font-black leading-tight text-stone-900 sm:text-3xl">{product.name}</h1><p className="mt-2 text-2xl font-black text-rose-700">{formatCurrency(price)}</p></div>
           {colorOptions.length > 0 && <fieldset><legend className="mb-3 text-sm font-bold text-stone-800">{t('pdpChooseColor')}</legend><div className="flex flex-wrap gap-2">{colorOptions.map((color) => <button key={color} type="button" onClick={() => chooseColor(color)} aria-pressed={selectedColor === color} className={`min-h-10 rounded-xl border px-4 py-2 text-sm font-semibold transition ${selectedColor === color ? 'border-rose-500 bg-rose-50 text-rose-800' : 'border-stone-200 text-stone-600 hover:border-stone-400'}`}>{color === NO_COLOR ? t('oneColor') : color}</button>)}</div></fieldset>}
-          <fieldset><legend className="mb-3 text-sm font-bold text-stone-800">{t('pdpChooseSize')}</legend>{colorVariants.length ? <div className="flex flex-wrap gap-2">{colorVariants.map((variant) => {
+          <fieldset><div className="mb-3 flex items-center justify-between gap-3"><legend className="text-sm font-bold text-stone-800">{t('pdpChooseSize')}</legend><button type="button" onClick={() => setSizeGuideOpen(true)} className="text-xs font-semibold text-rose-700 underline underline-offset-4">{t('pdpSizeGuide')}</button></div>{colorVariants.length ? <div className="flex flex-wrap gap-2">{colorVariants.map((variant) => {
             const selected = selectedVariantId === variant.id;
             const out = !variant.is_active || variant.stock_qty < 1;
             return <button key={variant.id} type="button" onClick={() => { setSelectedVariantId(variant.id); setQuantity(1); }} aria-pressed={selected} className={`min-h-11 min-w-14 rounded-xl border px-3 py-2 text-sm font-bold transition ${selected ? 'border-stone-900 bg-stone-900 text-white' : out ? 'border-stone-200 bg-stone-50 text-stone-400 line-through hover:border-rose-300' : 'border-stone-200 text-stone-700 hover:border-rose-400 hover:bg-rose-50'}`}>{variant.size?.trim() || t('pdpNoSize')}</button>;
           })}</div> : <p className="text-sm text-stone-500">{t('posNoVariantsAvailable')}</p>}</fieldset>
           {selectedVariant && <div className={`rounded-xl px-4 py-3 text-sm ${unavailable ? 'bg-stone-100 text-stone-600' : lowStock ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-bold">{unavailable ? t('storeOutOfStock') : lowStock ? t('storeOnlyLeft').replace('{count}', new Intl.NumberFormat(lang).format(selectedVariant.stock_qty)) : t('pdpInStock')}</span><span className="text-xs">{t('pdpSelectedSku')}: <b dir="ltr">{selectedVariant.sku}</b></span></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-bold">{unavailable ? t('storeOutOfStock') : lowStock ? t('pdpScarcity').replace('{count}', new Intl.NumberFormat(lang).format(selectedVariant.stock_qty)) : t('pdpInStock')}</span><span className="text-xs">{t('pdpSelectedSku')}: <b dir="ltr">{selectedVariant.sku}</b></span></div>
             {unavailable && <button type="button" onClick={() => setShowAlternatives(true)} className="mt-2 text-start text-xs font-bold text-rose-700 underline underline-offset-4">{t('pdpViewAlternatives')}</button>}
           </div>}
           <div className="flex flex-wrap items-center justify-between gap-4 border-y border-stone-100 py-4"><span className="text-sm font-semibold text-stone-700">{t('pdpQuantity')}</span><div className="inline-flex items-center gap-2 rounded-xl bg-stone-100 p-1"><button type="button" disabled={!selectedVariant || quantity <= 1} onClick={() => setQuantity((value) => Math.max(1, value - 1))} aria-label={t('adjustmentDecrease')} className="grid size-9 place-items-center rounded-lg text-stone-600 disabled:opacity-40"><Minus className="size-4" /></button><span className="min-w-8 text-center text-sm font-bold">{new Intl.NumberFormat(lang).format(quantity)}</span><button type="button" disabled={!selectedVariant || unavailable || quantity >= selectedVariant.stock_qty} onClick={() => selectedVariant && setQuantity((value) => Math.min(selectedVariant.stock_qty, value + 1))} aria-label={t('adjustmentIncrease')} className="grid size-9 place-items-center rounded-lg text-stone-600 disabled:opacity-40"><Plus className="size-4" /></button></div></div>
-          <button type="button" onClick={addToCart} disabled={unavailable} className="min-h-13 w-full rounded-xl bg-stone-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{t('pdpAddToCart')}</button>
-          <div className="space-y-2"><h2 className="text-sm font-bold text-stone-800">{t('pdpDescription')}</h2><p className="whitespace-pre-line text-sm leading-7 text-stone-600">{product.description || '—'}</p></div>
+          <button ref={mainAddButtonRef} type="button" onClick={addToCart} disabled={unavailable} className="min-h-13 w-full rounded-xl bg-stone-900 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{t('pdpAddToCart')}</button>
+          <div className="grid grid-cols-3 gap-2 border-y border-stone-100 py-3 text-center text-[10px] font-medium text-stone-600 sm:text-xs">{[{ icon: CreditCard, label: t('pdpTrustCod') }, { icon: RefreshCw, label: t('pdpTrustExchange') }, { icon: Truck, label: t('pdpTrustShipping') }].map(({ icon: Icon, label }) => <div key={label} className="flex flex-col items-center gap-1.5"><Icon className="size-4 text-rose-700" /><span>{label}</span></div>)}</div>
+          <div className="divide-y divide-stone-200 border-y border-stone-200">
+            <details className="group py-3"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-stone-800 marker:hidden">{t('pdpInfoCare')}<ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" /></summary><p className="whitespace-pre-line pt-3 text-sm leading-7 text-stone-600">{product.description || '—'}<br />{t('pdpCareNote')}</p></details>
+            <details className="group py-3"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-stone-800 marker:hidden">{t('pdpInfoShipping')}<ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" /></summary><p className="pt-3 text-sm leading-7 text-stone-600">{t('pdpDeliveryPolicy')}</p></details>
+            <details className="group py-3"><summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-bold text-stone-800 marker:hidden">{t('pdpInfoReturns')}<ChevronDown className="size-4 shrink-0 transition-transform group-open:rotate-180" /></summary><p className="pt-3 text-sm leading-7 text-stone-600">{t('pdpReturnPolicy')}</p></details>
+          </div>
           {!!product.style_tags.length && <div><h2 className="mb-2 text-sm font-bold text-stone-800">{t('pdpStyleTags')}</h2><div className="flex flex-wrap gap-2">{product.style_tags.map((tag) => <span key={tag} className="rounded-full bg-stone-100 px-3 py-1.5 text-xs font-medium text-stone-600">{tag}</span>)}</div></div>}
         </section>
       </div>
 
-      {similar.length > 0 && <section className="mt-12"><h2 className="text-xl font-black">{t('pdpSimilar')}</h2><div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{similar.map(({ product: alternative, matchingTags, availableVariants }) => {
+      {related.length > 0 && <section className="mt-12"><h2 className="text-xl font-black">{t('pdpRelated')}</h2><div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{related.map((alternative) => {
+        const availableVariants = alternative.variants.filter((variant) => variant.is_active && variant.stock_qty > 0);
         const image = alternative.image_url ?? alternative.gallery_urls[0] ?? availableVariants.find((variant) => variant.image_url)?.image_url ?? alternative.image_urls[0];
         const priceFrom = Math.min(...availableVariants.map((variant) => variant.unit_sell_price));
-        return <Link key={alternative.id} to={`/product/${alternative.id}`} className="group overflow-hidden rounded-2xl border border-stone-200 bg-white transition hover:-translate-y-1 hover:shadow-lg"><div className="aspect-[4/5] overflow-hidden bg-stone-100">{image ? <img src={image} alt={alternative.name} className="size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center text-stone-300"><ShoppingBag className="size-10" /></div>}</div><div className="space-y-2 p-3"><h3 className="line-clamp-1 text-sm font-bold text-stone-900">{alternative.name}</h3><p className="text-sm font-black text-rose-700">{t('storeStartingPrice').replace('{price}', formatCurrency(priceFrom))}</p>{matchingTags.length > 0 && <p className="line-clamp-1 text-[11px] text-stone-500">{matchingTags.join('، ')}</p>}</div></Link>;
+        const hoverImage = alternative.gallery_urls.length >= 2 ? alternative.gallery_urls[1] : null;
+        return <Link key={alternative.id} to={`/product/${alternative.id}`} className="group overflow-hidden rounded-lg border border-stone-200 bg-white transition hover:shadow-lg"><div className="relative aspect-[4/5] overflow-hidden bg-stone-100">{image ? <img src={image} alt={alternative.name} className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-105" /> : <div className="grid size-full place-items-center text-stone-300"><ShoppingBag className="size-10" /></div>}{hoverImage && <img src={hoverImage} alt="" aria-hidden="true" className="absolute inset-0 size-full object-cover opacity-0 transition-opacity duration-500 group-hover:opacity-100" />}</div><div className="space-y-2 p-3"><h3 className="line-clamp-1 text-sm font-bold text-stone-900">{alternative.name}</h3><p className="text-sm font-black text-rose-700">{t('storeStartingPrice').replace('{price}', formatCurrency(priceFrom))}</p></div></Link>;
       })}</div></section>}
     </main>
     <StoreCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
+    {stickyAddVisible && <div dir={dir} className="fixed inset-x-0 bottom-0 z-40 border-t border-stone-200 bg-white/95 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-2xl backdrop-blur md:hidden"><div className="mx-auto flex max-w-7xl items-center gap-3"><div className="min-w-0 flex-1"><p className="font-bold">{formatCurrency(price)}</p><p className="truncate text-xs text-stone-500">{selectedVariant ? `${selectedVariant.color?.trim() || t('oneColor')} · ${selectedVariant.size?.trim() || t('pdpNoSize')}` : t('pdpChooseSize')}</p></div><button type="button" onClick={addToCart} disabled={unavailable} className="min-h-11 rounded-lg bg-stone-900 px-5 py-2 text-sm font-bold text-white disabled:opacity-50">{t('pdpMobileAdd')}</button></div></div>}
+    {sizeGuideOpen && <div dir={dir} role="presentation" className="fixed inset-0 z-[80] grid place-items-center bg-stone-950/55 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setSizeGuideOpen(false); }}><section role="dialog" aria-modal="true" aria-labelledby="size-guide-title" className="dialog-panel max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-lg border border-stone-200 bg-white p-5 shadow-2xl sm:p-6"><header className="mb-4 flex items-center justify-between gap-3"><h2 id="size-guide-title" className="text-lg font-black">{product.category === 'bags' ? t('pdpSizeGuideBags') : t('pdpSizeGuideShoes')}</h2><button type="button" onClick={() => setSizeGuideOpen(false)} aria-label={t('lightboxClose')} className="grid size-9 place-items-center rounded-md text-stone-500 hover:bg-stone-100"><X className="size-5" /></button></header>{product.category === 'bags' ? <div className="overflow-x-auto"><table className="w-full text-start text-sm"><thead className="border-b border-stone-200 text-stone-500"><tr><th className="p-3">{t('size')}</th><th className="p-3">{t('pdpBagDimensions')}</th></tr></thead><tbody className="divide-y divide-stone-100">{[[t('pdpBagMini'), '18 × 13 × 7 cm'], [t('pdpBagMedium'), '25 × 18 × 10 cm'], [t('pdpBagLarge'), '32 × 25 × 14 cm']].map(([label, dimensions]) => <tr key={label}><td className="p-3 font-semibold">{label}</td><td dir="ltr" className="p-3 text-start">{dimensions}</td></tr>)}</tbody></table></div> : <div className="overflow-x-auto"><table className="w-full text-start text-sm"><thead className="border-b border-stone-200 text-stone-500"><tr><th className="p-3">{t('pdpSizeGuideEu')}</th><th className="p-3">{t('pdpSizeGuideCm')}</th></tr></thead><tbody className="divide-y divide-stone-100">{[['36', '23'], ['37', '23.5'], ['38', '24.3'], ['39', '25'], ['40', '25.7'], ['41', '26.3']].map(([eu, cm]) => <tr key={eu}><td className="p-3 font-semibold">{eu}</td><td className="p-3">{cm}</td></tr>)}</tbody></table></div>}<p className="mt-4 text-xs text-stone-500">{t('pdpSizeGuideNote')}</p></section></div>}
     {lightboxOpen && activeImage && <div dir={dir} role="dialog" aria-modal="true" aria-label={t('pdpGallery')} className="fixed inset-0 z-[90] flex flex-col bg-stone-950/95 text-white" onMouseDown={(event) => { if (event.target === event.currentTarget) { setLightboxOpen(false); setZoomed(false); } }}>
       <header className="flex shrink-0 items-center justify-between gap-3 px-4 py-3 sm:px-6"><button type="button" onClick={() => { setLightboxOpen(false); setZoomed(false); }} aria-label={t('lightboxClose')} className="grid size-11 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20"><X className="size-5" /></button><span dir="ltr" className="text-sm font-semibold text-white/80">{imageIndex + 1} / {images.length}</span><span className="sr-only" aria-live="polite">{zoomed ? t('lightboxZoomed') : ''}</span><button type="button" onClick={() => setZoomed((value) => !value)} aria-label={zoomed ? t('lightboxZoomOut') : t('lightboxZoomIn')} className="grid size-11 place-items-center rounded-full bg-white/10 text-white hover:bg-white/20">{zoomed ? <ZoomOut className="size-5" /> : <ZoomIn className="size-5" />}</button></header>
       <div className={`relative flex min-h-0 flex-1 ${zoomed ? 'overflow-auto' : 'items-center justify-center overflow-hidden'}`}>

@@ -3,7 +3,7 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { LanguageSwitcher } from '../../components/layout/LanguageSwitcher';
 import { ThemeToggle } from '../../components/layout/ThemeToggle';
 
-type CategoryFilter = 'all' | 'sneakers' | 'bags';
+type CategoryFilter = 'all' | 'shoes' | 'bags';
 
 interface StorefrontHeaderProps {
   cartCount: number;
@@ -18,7 +18,7 @@ export function StorefrontHeader({ cartCount, onOpenCart, category, onCategoryCh
   const { t, dir, lang } = useTranslation();
   const categories = [
     { value: 'all', label: t('all') },
-    { value: 'sneakers', label: t('posShoes') },
+    { value: 'shoes', label: t('posShoes') },
     { value: 'bags', label: t('posBags') },
   ] as const;
 
