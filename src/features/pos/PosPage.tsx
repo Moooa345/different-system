@@ -1,16 +1,31 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Minus, PackageOpen, Plus, ReceiptText, Search, ShoppingBag, Trash2 } from 'lucide-react';
+import { Banknote, CalendarClock, CheckCircle2, CreditCard, LoaderCircle, Minus, PackageOpen, Plus, Printer, ReceiptText, Search, ShoppingBag, Trash2, X, MessageCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Product, ProductVariant, PaymentMethod } from '../../lib/types';
 import { supabase } from '../../lib/supabase';
 import { useTranslation } from '../../i18n/useTranslation';
-import { usePosCart } from '../../store/usePosCart';
+import { usePosCart, type PosCartItem } from '../../store/usePosCart';
 import { AlternativesModal } from '../../components/ui/AlternativesModal';
 import type { AlternativeVariant, TaggedProduct } from '../../utils/getSimilarAlternatives';
 import { formatVariantLabel } from '../../utils/formatVariantLabel';
+import { useHeldPosCarts, type HeldPosCart } from '../../store/useHeldPosCarts';
+import { normalizeEgyptianPhone } from '../../utils/normalizeEgyptianPhone';
 
 type CatalogProduct = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
+type PosPaymentMethod = Extract<PaymentMethod, 'cash' | 'instapay'>;
+
+interface PosReceipt {
+  orderId: string;
+  orderNumber: string;
+  createdAt: string;
+  customerName: string;
+  items: PosCartItem[];
+  total: number;
+  paymentMethod: PosPaymentMethod;
+  cashTendered: number | null;
+  changeDue: number;
+}
 
 export function PosPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
@@ -20,17 +35,28 @@ export function PosPage() {
   const removeItem = usePosCart((state) => state.removeItem);
   const syncStock = usePosCart((state) => state.syncStock);
   const clearCart = usePosCart((state) => state.clearCart);
+  const restoreItems = usePosCart((state) => state.restoreItems);
   const subtotal = usePosCart((state) => state.subtotal());
+  const heldCarts = useHeldPosCarts((state) => state.carts);
+  const holdCart = useHeldPosCarts((state) => state.holdCart);
+  const removeHeldCart = useHeldPosCarts((state) => state.removeHeldCart);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [alternativesRequest, setAlternativesRequest] = useState<{ productId: string; variantId: string } | null>(null);
+  const [heldCartsOpen, setHeldCartsOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [cashTendered, setCashTendered] = useState('');
+  const [receipt, setReceipt] = useState<PosReceipt | null>(null);
+  const [receiptPhone, setReceiptPhone] = useState('');
+  const [receiptPhoneTouched, setReceiptPhoneTouched] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const saleSubmittingRef = useRef(false);
   const loadErrorMessage = t('posLoadError');
 
   const loadCatalog = useCallback(async (showError = true) => {
@@ -79,6 +105,45 @@ export function PosPage() {
 
   const alternativesTarget = alternativesRequest ? products.find((product) => product.id === alternativesRequest.productId) : null;
   const requestedVariant = alternativesTarget?.variants.find((variant) => variant.id === alternativesRequest?.variantId) ?? null;
+  const parsedTendered = cashTendered === '' ? 0 : Number(cashTendered);
+  const effectiveTendered = Number.isFinite(parsedTendered) ? parsedTendered : 0;
+  const changeDue = Math.max(0, effectiveTendered - subtotal);
+  const amountShort = Math.max(0, subtotal - effectiveTendered);
+
+  function parkCurrentCart() {
+    if (items.length === 0) return;
+    holdCart({ items: items.map((item) => ({ ...item })), customerName, customerPhone, paymentMethod, itemCount: items.reduce((count, item) => count + item.qty, 0), total: subtotal });
+    clearCart();
+    setCustomerName('');
+    setCustomerPhone('');
+    setPaymentMethod('cash');
+    setCashTendered('');
+    toast.success(t('posHeldSaved'));
+  }
+
+  function resumeHeldCart(cart: HeldPosCart) {
+    if (items.length > 0) {
+      toast.error(t('posHeldCartRequiresEmpty'));
+      return;
+    }
+    let changed = false;
+    const availableItems = cart.items.flatMap((item) => {
+      const variant = products.flatMap((product) => product.variants).find((entry) => entry.id === item.variantId && entry.is_active);
+      if (!variant || variant.stock_qty < 1) { changed = true; return []; }
+      if (item.qty > variant.stock_qty) changed = true;
+      const product = products.find((entry) => entry.id === variant.product_id);
+      return [{ ...item, productName: product?.name ?? item.productName, color: variant.color, size: variant.size, unitPrice: variant.unit_sell_price, maxStock: variant.stock_qty, qty: Math.min(item.qty, variant.stock_qty) }];
+    });
+    restoreItems(availableItems);
+    setCustomerName(cart.customerName);
+    setCustomerPhone(cart.customerPhone);
+    setPaymentMethod(cart.paymentMethod);
+    removeHeldCart(cart.id);
+    setHeldCartsOpen(false);
+    if (changed) toast.warning(t('posHeldStockChanged'));
+    else toast.success(t('posHeldRestored'));
+    searchRef.current?.focus();
+  }
   const addAlternative = (product: TaggedProduct, variant: AlternativeVariant) => {
     const image = variant.image_url ?? product.image_url ?? product.gallery_urls[0] ?? product.image_urls[0] ?? null;
     addItem({ variantId: variant.id, productName: product.name, sku: variant.sku, color: variant.color, size: variant.size, unitPrice: variant.unit_sell_price, maxStock: variant.stock_qty, qty: 1, imageUrl: image });
@@ -87,44 +152,94 @@ export function PosPage() {
   };
 
   async function completeSale() {
-    if (items.length === 0 || submitting) return;
+    if (items.length === 0 || submitting || saleSubmittingRef.current || (paymentMethod === 'cash' && effectiveTendered < subtotal)) return;
+    saleSubmittingRef.current = true;
     setSubmitting(true);
-    const { data: orderId, error } = await supabase.rpc('create_order_atomic', {
-      order_payload: {
-        source: 'pos',
-        status: 'delivered',
-        shipping_fee: 0,
-        cod_fee: 0,
-        payment_method: paymentMethod,
-        customer_name: customerName.trim() || t('posWalkInCustomer'),
-        customer_phone: customerPhone.trim() || t('posPhoneNotProvided'),
-      },
-      items_array: items.map((item) => ({ variant_id: item.variantId, quantity: item.qty })),
-    });
+    const receiptItems = items.map((item) => ({ ...item }));
+    try {
+      const { data: orderId, error } = await supabase.rpc('create_order_atomic', {
+        order_payload: {
+          source: 'pos',
+          status: 'delivered',
+          shipping_fee: 0,
+          cod_fee: 0,
+          payment_method: paymentMethod,
+          customer_name: customerName.trim() || t('posWalkInCustomer'),
+          customer_phone: customerPhone.trim() || t('posPhoneNotProvided'),
+        },
+        items_array: items.map((item) => ({ variant_id: item.variantId, quantity: item.qty })),
+      });
 
-    if (error || !orderId) {
-      setSubmitting(false);
+      if (error || !orderId) {
+        toast.error(t('posSaleError'));
+        await loadCatalog(false);
+        return;
+      }
+
+      const { data: order } = await supabase.from('orders').select('order_number, created_at').eq('id', orderId).single();
+      const orderNumber = typeof order?.order_number === 'number'
+        ? new Intl.NumberFormat(lang).format(order.order_number)
+        : order?.order_number ?? t('posOrderNumberUnavailable');
+      setReceipt({ orderId, orderNumber: String(orderNumber), createdAt: order?.created_at ?? new Date().toISOString(), customerName: customerName.trim() || t('posWalkInCustomer'), items: receiptItems, total: subtotal, paymentMethod, cashTendered: paymentMethod === 'cash' ? effectiveTendered : null, changeDue: paymentMethod === 'cash' ? changeDue : 0 });
+      setReceiptPhone(normalizeEgyptianPhone(customerPhone) ?? '');
+      setReceiptPhoneTouched(false);
+      toast.success(t('posSaleReceiptOpened').replace('{order}', String(orderNumber)));
+      clearCart();
+      setCustomerName('');
+      setCustomerPhone('');
+      setPaymentMethod('cash');
+      setCashTendered('');
+      setCheckoutOpen(false);
+      await loadCatalog(false);
+    } catch {
       toast.error(t('posSaleError'));
       await loadCatalog(false);
-      searchRef.current?.focus();
-      return;
+    } finally {
+      saleSubmittingRef.current = false;
+      setSubmitting(false);
     }
+  }
 
-    const { data: order } = await supabase.from('orders').select('order_number').eq('id', orderId).single();
-    const orderNumber = typeof order?.order_number === 'number'
-      ? new Intl.NumberFormat(lang).format(order.order_number)
-      : order?.order_number ?? t('posOrderNumberUnavailable');
-    toast.success(t('posSaleSuccess').replace('{order}', orderNumber));
-    clearCart();
-    setCustomerName('');
-    setCustomerPhone('');
-    setPaymentMethod('cash');
-    await loadCatalog(false);
-    setSubmitting(false);
+  function startNewSale() {
+    setReceipt(null);
+    setSearch('');
+    setReceiptPhone('');
     searchRef.current?.focus();
   }
 
-  return <div dir={dir} className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_25rem]">
+  function sendReceiptToWhatsApp() {
+    const normalizedPhone = normalizeEgyptianPhone(receiptPhone);
+    if (!receipt || !normalizedPhone) { toast.error(t('posReceiptPhoneInvalid')); setReceiptPhoneTouched(true); return; }
+    const message = [t('posReceiptMessageIntro'), `${t('posReceiptOrder')}: ${receipt.orderNumber}`, `${t('posReceiptCustomer')}: ${receipt.customerName}`, `${t('posReceiptDate')}: ${new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(receipt.createdAt))}`, `${t('posReceiptItems')}:`, ...receipt.items.map((item) => `• ${item.productName} (${formatVariantLabel(item.color, item.size, t)}) × ${item.qty} — ${formatCurrency(item.unitPrice * item.qty)}`), `${t('posReceiptPayment')}: ${t(receipt.paymentMethod === 'cash' ? 'posReceiptCash' : 'posReceiptInstaPay')}`, ...(receipt.cashTendered !== null ? [`${t('posReceiptTendered')}: ${formatCurrency(receipt.cashTendered)}`, `${t('posReceiptChange')}: ${formatCurrency(receipt.changeDue)}`] : []), `${t('posReceiptTotal')}: ${formatCurrency(receipt.total)}`].join('\n');
+    window.open(`https://wa.me/20${normalizedPhone.slice(1)}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing = target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '');
+      if ((event.key === '/' && !editing) || event.key === 'F2') {
+        event.preventDefault();
+        searchRef.current?.focus();
+        return;
+      }
+  if (event.key === 'Escape') {
+        if (alternativesRequest) setAlternativesRequest(null);
+        else if (checkoutOpen) setCheckoutOpen(false);
+        else if (heldCartsOpen) setHeldCartsOpen(false);
+        else if (receipt) startNewSale();
+        else if (search) setSearch('');
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && items.length > 0 && !receipt) {
+        event.preventDefault();
+        setCheckoutOpen(true);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [alternativesRequest, checkoutOpen, heldCartsOpen, items.length, receipt, search]);
+
+  return <div dir={dir} className="grid min-w-0 gap-5 tabular-nums xl:grid-cols-[minmax(0,1fr)_25rem]">
     <section className="min-w-0 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-black text-stone-900">{t('posCatalogTitle')}</h1><p className="mt-1 text-sm text-stone-500">{t('posCatalogSubtitle')}</p></div>
@@ -132,9 +247,9 @@ export function PosPage() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">
-        <label className="relative min-w-0 flex-1"><Search className={`absolute top-3.5 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input ref={searchRef} autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('posSearchPlaceholder')} className={`h-12 w-full rounded-xl border border-stone-300 bg-white text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label>
+        <div className="flex min-w-0 flex-1 items-center gap-2"><label className="relative min-w-0 flex-1"><Search className={`absolute top-3.5 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input ref={searchRef} autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('posSearchPlaceholder')} className={`h-12 w-full rounded-lg border border-stone-300 bg-white text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label><span className="hidden items-center rounded-md border border-stone-200 bg-white px-2 py-1 text-[10px] text-stone-400 lg:inline-flex">{t('posFocusSearchHint')}</span></div>
         <div className="flex shrink-0 rounded-xl bg-stone-100 p-1">
-          {([{ value: 'all', key: 'posAllCategories' }, { value: 'sneakers', key: 'posShoes' }, { value: 'bags', key: 'posBags' }] as const).map((option) => <button key={option.value} onClick={() => setCategory(option.value)} className={`min-h-10 rounded-lg px-3 text-sm font-semibold transition sm:px-4 ${category === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)}</button>)}
+          {([{ value: 'all', key: 'posAllCategories' }, { value: 'sneakers', key: 'posShoes' }, { value: 'bags', key: 'posBags' }] as const).map((option) => <button key={option.value} onClick={() => setCategory(option.value)} className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition sm:px-4 ${category === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)}</button>)}
         </div>
       </div>
 
@@ -149,14 +264,16 @@ export function PosPage() {
               </div>
               <div className="space-y-2 p-3">
                 {product.variants.length === 0 ? <p className="py-2 text-center text-xs text-stone-400">{t('posNoVariantsAvailable')}</p> : product.variants.map((variant) => {
-                  const outOfStock = variant.stock_qty === 0;
+                  const outOfStock = variant.stock_qty === 0 || !variant.is_active;
+                  const lowStock = !outOfStock && variant.stock_qty <= 3;
                   const inCart = items.find((item) => item.variantId === variant.id)?.qty ?? 0;
                   return <button key={variant.id} type="button" onClick={() => {
                     if (outOfStock) { setAlternativesRequest({ productId: product.id, variantId: variant.id }); return; }
                     addItem({ variantId: variant.id, productName: product.name, sku: variant.sku, color: variant.color, size: variant.size, unitPrice: variant.unit_sell_price, maxStock: variant.stock_qty, qty: 1, imageUrl: variant.image_url ?? image ?? null });
                     searchRef.current?.focus();
-                  }} className={`flex min-h-14 w-full items-center justify-between gap-2 rounded-xl border px-3 py-2 text-start transition ${outOfStock ? 'cursor-pointer border-stone-200 bg-stone-50 text-stone-400 hover:border-rose-300' : 'border-stone-200 hover:border-rose-300 hover:bg-rose-50/50 active:scale-[0.99]'}`}>
-                    <span className="min-w-0"><span className="block truncate text-sm font-semibold">{formatVariantLabel(variant.color, variant.size, t)}</span><span className="mt-0.5 block text-xs text-stone-500">{formatCurrency(variant.unit_sell_price)} · {outOfStock ? t('posOutOfStock') : `${t('posStockRemaining')}: ${new Intl.NumberFormat(lang).format(variant.stock_qty)}`}</span></span>
+                  }} aria-disabled={outOfStock} className={`flex min-h-14 w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-start transition ${outOfStock ? 'cursor-pointer border-stone-200 bg-stone-50 text-stone-400 hover:border-rose-300' : 'border-stone-200 hover:border-rose-300 hover:bg-rose-50/50 active:scale-[0.99]'}`}>
+                    <span className="min-w-0"><span className="block truncate text-sm font-semibold">{formatVariantLabel(variant.color, variant.size, t)}</span><span className="mt-0.5 block text-xs text-stone-500">{formatCurrency(variant.unit_sell_price)} · {t('posStockRemaining')}: {new Intl.NumberFormat(lang).format(variant.stock_qty)}</span></span>
+                    <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${outOfStock ? 'bg-red-50 text-red-700' : lowStock ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{outOfStock ? t('posStockSoldOut') : lowStock ? t('posStockLow') : t('posStockInStock')}</span>
                     {outOfStock && <span className="shrink-0 text-[10px] font-bold text-rose-700">{t('alternativesSee')}</span>}
                     {inCart > 0 && <span className="grid size-7 shrink-0 place-items-center rounded-full bg-rose-100 text-xs font-bold text-rose-700">{new Intl.NumberFormat(lang).format(inCart)}</span>}
                   </button>;
@@ -168,13 +285,13 @@ export function PosPage() {
     </section>
 
     <aside className="h-fit min-w-0 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm xl:sticky xl:top-20">
-      <div className="flex items-center justify-between border-b border-stone-200 px-5 py-4"><h2 className="flex items-center gap-2 font-bold text-stone-900"><ReceiptText className="size-5 text-rose-600" />{t('posCurrentSale')}</h2><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-600">{new Intl.NumberFormat(lang).format(items.reduce((count, item) => count + item.qty, 0))}</span></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 px-5 py-4"><h2 className="flex items-center gap-2 font-bold text-stone-900"><ReceiptText className="size-5 text-rose-600" />{t('posCurrentSale')}</h2><div className="flex items-center gap-2"><button type="button" onClick={() => setHeldCartsOpen(true)} className="min-h-11 rounded-lg border border-stone-200 px-3 text-xs font-semibold text-stone-600 hover:bg-stone-50">{t('posHeldCarts').replace('{count}', new Intl.NumberFormat(lang).format(heldCarts.length))}</button><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-bold text-stone-600">{new Intl.NumberFormat(lang).format(items.reduce((count, item) => count + item.qty, 0))}</span></div></div>
 
       {items.length === 0 ? <div className="grid min-h-44 place-items-center px-5 text-center"><div><PackageOpen className="mx-auto size-9 text-stone-300" /><p className="mt-3 font-semibold text-stone-600">{t('posCartEmpty')}</p><p className="mt-1 text-xs text-stone-400">{t('posCartEmptyHint')}</p></div></div> : <div className="max-h-[36vh] space-y-3 overflow-y-auto p-4">
         {items.map((item) => <article key={item.variantId} className="flex gap-3 rounded-xl border border-stone-100 p-3">
           {item.imageUrl ? <img src={item.imageUrl} alt={item.productName} className="size-14 shrink-0 rounded-lg bg-stone-100 object-cover" /> : <div className="grid size-14 shrink-0 place-items-center rounded-lg bg-stone-100 text-stone-400"><ShoppingBag className="size-5" /></div>}
-          <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-stone-800">{item.productName}</h3><p className="mt-0.5 truncate text-xs text-stone-500">{formatVariantLabel(item.color, item.size, t)} · {item.sku}</p></div><button onClick={() => removeItem(item.variantId)} aria-label={t('posRemoveItem')} title={t('posRemoveItem')} className="rounded-md p-1.5 text-stone-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="size-4" /></button></div>
-            <div className="mt-2 flex items-center justify-between gap-2"><div className="inline-flex items-center gap-1 rounded-lg bg-stone-100 p-1"><button disabled={item.qty <= 1} onClick={() => updateQty(item.variantId, item.qty - 1)} aria-label={t('adjustmentDecrease')} className="grid size-7 place-items-center rounded-md text-stone-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"><Minus className="size-3.5" /></button><span aria-label={t('posQuantity')} className="min-w-6 text-center text-xs font-bold">{new Intl.NumberFormat(lang).format(item.qty)}</span><button disabled={item.qty >= item.maxStock} onClick={() => updateQty(item.variantId, item.qty + 1)} aria-label={t('adjustmentIncrease')} className="grid size-7 place-items-center rounded-md text-stone-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"><Plus className="size-3.5" /></button></div><span className="text-sm font-bold text-stone-800">{formatCurrency(item.unitPrice * item.qty)}</span></div>
+          <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-sm font-bold text-stone-800">{item.productName}</h3><p className="mt-0.5 truncate text-xs text-stone-500">{formatVariantLabel(item.color, item.size, t)} · {item.sku}</p></div><button onClick={() => removeItem(item.variantId)} aria-label={t('posRemoveItem')} title={t('posRemoveItem')} className="grid size-11 shrink-0 place-items-center rounded-md text-stone-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="size-4" /></button></div>
+            <div className="mt-2 flex items-center justify-between gap-2"><div className="inline-flex items-center gap-1 rounded-lg bg-stone-100 p-1"><button disabled={item.qty <= 1} onClick={() => updateQty(item.variantId, item.qty - 1)} aria-label={t('adjustmentDecrease')} className="grid size-11 place-items-center rounded-md text-stone-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"><Minus className="size-4" /></button><span aria-label={t('posQuantity')} className="min-w-7 text-center text-sm font-bold">{new Intl.NumberFormat(lang).format(item.qty)}</span><button disabled={item.qty >= item.maxStock} onClick={() => updateQty(item.variantId, item.qty + 1)} aria-label={t('adjustmentIncrease')} className="grid size-11 place-items-center rounded-md text-stone-600 hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"><Plus className="size-4" /></button></div><span className="text-sm font-bold text-stone-800">{formatCurrency(item.unitPrice * item.qty)}</span></div>
           </div>
         </article>)}
       </div>}
@@ -185,12 +302,14 @@ export function PosPage() {
           <label className="text-start text-xs font-semibold text-stone-600">{t('posCustomerPhone')} <span className="font-normal text-stone-400">({t('posOptional')})</span><input type="tel" inputMode="tel" value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} placeholder={t('posCustomerPhonePlaceholder')} className="mt-1.5 h-10 w-full rounded-lg border border-stone-300 px-3 text-start text-sm outline-none focus:border-rose-500" /></label>
         </div>
 
-        <fieldset><legend className="mb-2 text-xs font-semibold text-stone-600">{t('posPaymentMethod')}</legend><div className="grid grid-cols-2 gap-2">{([{ value: 'cash', key: 'posCash' }, { value: 'instapay', key: 'posInstaPay' }] as const).map((option) => <button key={option.value} type="button" aria-pressed={paymentMethod === option.value} onClick={() => setPaymentMethod(option.value)} className={`min-h-11 rounded-xl border text-sm font-bold transition ${paymentMethod === option.value ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}>{t(option.key)}</button>)}</div></fieldset>
-
         <div className="space-y-2 border-t border-dashed border-stone-200 pt-3"><div className="flex justify-between text-sm text-stone-500"><span>{t('posSubtotal')}</span><span>{formatCurrency(subtotal)}</span></div><div className="flex items-center justify-between text-base font-black text-stone-900"><span>{t('posTotal')}</span><span>{formatCurrency(subtotal)}</span></div></div>
-        <button disabled={items.length === 0 || submitting} onClick={() => void completeSale()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-stone-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{submitting ? t('posCompletingSale') : t('posCompleteSale')}</button>
+        <button type="button" disabled={items.length === 0 || submitting} onClick={() => { setCashTendered(''); setCheckoutOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{t('posCompleteSale')}</button>
+        <div className="flex items-center justify-between gap-2"><button type="button" disabled={items.length === 0 || submitting} onClick={parkCurrentCart} className="min-h-11 flex-1 rounded-lg border border-stone-200 px-3 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:opacity-40">{t('posHoldCart')}</button><span className="hidden items-center rounded-md border border-stone-200 bg-white px-2 py-1 text-[10px] text-stone-400 lg:inline-flex">{t('posCheckoutHint')}</span></div>
       </div>
     </aside>
     {alternativesTarget && <AlternativesModal targetProduct={alternativesTarget} requestedVariant={requestedVariant} allActiveProducts={products} mode="pos" onClose={() => setAlternativesRequest(null)} onAdd={addAlternative} />}
+    {heldCartsOpen && <div dir={dir} role="presentation" className="fixed inset-0 z-[70] grid place-items-center bg-stone-950/50 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) setHeldCartsOpen(false); }}><section role="dialog" aria-modal="true" aria-labelledby="held-carts-title" className="dialog-panel max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-stone-200 bg-white shadow-2xl"><header className="sticky top-0 flex items-center justify-between border-b border-stone-200 bg-white px-5 py-4"><h2 id="held-carts-title" className="text-lg font-black">{t('posHeldCarts').replace('{count}', new Intl.NumberFormat(lang).format(heldCarts.length))}</h2><button type="button" onClick={() => setHeldCartsOpen(false)} aria-label={t('closeMenu')} className="grid size-11 place-items-center rounded-md text-stone-500 hover:bg-stone-100"><X className="size-5" /></button></header>{heldCarts.length === 0 ? <p className="p-10 text-center text-sm text-stone-500">{t('posHeldEmpty')}</p> : <div className="space-y-3 p-4 sm:p-5">{heldCarts.map((cart) => <article key={cart.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-stone-200 p-4"><div className="min-w-0"><p className="font-bold text-stone-900">{cart.customerName || t('posWalkInCustomer')}</p><p className="mt-1 flex items-center gap-1.5 text-xs text-stone-500"><CalendarClock className="size-3.5" />{t('posHeldAt')}: {new Intl.DateTimeFormat(lang, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(cart.createdAt))}</p><p className="mt-1 text-xs text-stone-500">{t('posHeldItems')}: {new Intl.NumberFormat(lang).format(cart.itemCount)} · {t('posHeldTotal')}: {formatCurrency(cart.total)}</p></div><div className="flex items-center gap-2"><button type="button" disabled={items.length > 0} title={items.length > 0 ? t('posHeldCartRequiresEmpty') : undefined} onClick={() => resumeHeldCart(cart)} className="min-h-11 rounded-lg bg-stone-900 px-3 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-40">{t('posHeldResume')}</button><button type="button" onClick={() => removeHeldCart(cart.id)} className="min-h-11 rounded-lg border border-stone-200 px-3 text-xs font-semibold text-red-700 hover:bg-red-50">{t('posHeldDiscard')}</button></div></article>)}</div>}</section></div>}
+    {checkoutOpen && <div dir={dir} role="presentation" className="fixed inset-0 z-[75] grid place-items-center bg-stone-950/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget && !submitting) setCheckoutOpen(false); }}><section role="dialog" aria-modal="true" aria-labelledby="pos-confirm-title" className="dialog-panel max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-lg border border-stone-200 bg-white p-5 shadow-2xl sm:p-7"><header className="mb-5 flex items-center justify-between gap-3"><h2 id="pos-confirm-title" className="text-xl font-black text-stone-900">{t('posConfirmTitle')}</h2><button type="button" disabled={submitting} onClick={() => setCheckoutOpen(false)} aria-label={t('closeMenu')} className="grid size-11 place-items-center rounded-md text-stone-500 hover:bg-stone-100"><X className="size-5" /></button></header><div className="mb-5 flex items-center justify-between border-b border-stone-100 pb-4 text-lg"><span className="font-semibold text-stone-600">{t('posTotal')}</span><span className="text-2xl font-black text-stone-900">{formatCurrency(subtotal)}</span></div><fieldset><legend className="mb-3 text-sm font-bold text-stone-700">{t('posPaymentMethod')}</legend><div className="grid grid-cols-3 gap-2"><button type="button" aria-pressed={paymentMethod === 'cash'} onClick={() => { setPaymentMethod('cash'); setCashTendered(''); }} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border px-2 text-sm font-bold ${paymentMethod === 'cash' ? 'border-rose-400 bg-rose-50 text-rose-800' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}><Banknote className="size-4" />{t('posCash')}</button><button type="button" aria-pressed={paymentMethod === 'instapay'} onClick={() => setPaymentMethod('instapay')} className={`flex min-h-12 items-center justify-center gap-2 rounded-lg border px-2 text-sm font-bold ${paymentMethod === 'instapay' ? 'border-rose-400 bg-rose-50 text-rose-800' : 'border-stone-200 text-stone-600 hover:bg-stone-50'}`}>{t('posInstaPay')}</button><button type="button" disabled title={t('posCardUnavailable')} className="flex min-h-12 cursor-not-allowed items-center justify-center gap-2 rounded-lg border border-stone-200 px-2 text-sm font-bold text-stone-400 opacity-60"><CreditCard className="size-4" />{t('posCard')}</button></div><p className="mt-2 text-xs text-stone-500">{t('posCardUnavailable')}</p></fieldset>{paymentMethod === 'cash' && <section className="mt-5 rounded-lg border border-stone-200 bg-stone-50 p-4"><label className="block text-sm font-semibold text-stone-700">{t('posCashTendered')}<input type="number" inputMode="decimal" min="0" step="0.01" value={cashTendered} onChange={(event) => setCashTendered(event.target.value)} className="mt-2 h-12 w-full rounded-lg border border-stone-300 bg-white px-3 text-start text-lg font-bold outline-none focus:border-rose-500" /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => setCashTendered(subtotal.toFixed(2))} className="min-h-11 rounded-md border border-stone-300 bg-white px-3 text-xs font-bold">{t('posExactAmount')}</button>{[200, 500, 1000, 2000].map((amount) => <button key={amount} type="button" onClick={() => setCashTendered(String(amount))} className="min-h-11 rounded-md border border-stone-300 bg-white px-3 text-xs font-semibold">{formatCurrency(amount)}</button>)}</div><div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 pt-3"><span className="font-semibold text-stone-700">{t('posChangeDue')}</span><span className="text-2xl font-black text-emerald-700">{formatCurrency(changeDue)}</span></div>{cashTendered !== '' && effectiveTendered < subtotal && <p role="alert" className="mt-2 text-sm font-semibold text-red-700">{t('posAmountShort')}: {formatCurrency(amountShort)}</p>}</section>}<div className="mt-6 grid gap-2 sm:grid-cols-2"><button type="button" disabled={submitting || items.length === 0 || (paymentMethod === 'cash' && effectiveTendered < subtotal)} onClick={() => void completeSale()} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white hover:bg-stone-800 disabled:cursor-not-allowed disabled:opacity-50">{submitting && <LoaderCircle className="size-4 animate-spin" />}{submitting ? t('posCompletingSale') : t('posConfirmSale')}</button><button type="button" disabled={submitting} onClick={() => setCheckoutOpen(false)} className="min-h-12 rounded-lg border border-stone-200 px-4 py-3 text-sm font-semibold text-stone-600 hover:bg-stone-50">{t('posBackToSale')}</button></div></section></div>}
+    {receipt && <div dir={dir} role="presentation" className="fixed inset-0 z-[80] grid place-items-center bg-stone-950/55 p-3 sm:p-6" onMouseDown={(event) => { if (event.target === event.currentTarget) startNewSale(); }}><section id="pos-receipt-print" role="dialog" aria-modal="true" aria-labelledby="pos-receipt-title" className="dialog-panel max-h-[94vh] w-full max-w-md overflow-y-auto rounded-lg border border-stone-200 bg-white p-5 shadow-2xl"><header className="mb-4 flex items-start justify-between gap-3 border-b border-dashed border-stone-300 pb-4"><div className="text-start"><p className="text-lg font-black tracking-wide text-stone-900">Different Store<span className="text-rose-700">.</span></p><h2 id="pos-receipt-title" className="mt-1 text-sm font-bold text-stone-700">{t('posReceiptTitle')}</h2></div><button type="button" onClick={startNewSale} aria-label={t('closeMenu')} className="receipt-actions grid size-11 place-items-center rounded-md text-stone-500 hover:bg-stone-100"><X className="size-5" /></button></header><div className="space-y-2 border-b border-dashed border-stone-300 pb-4 text-xs"><div className="flex justify-between gap-3"><span className="text-stone-500">{t('posReceiptOrder')}</span><b dir="ltr">{receipt.orderNumber}</b></div><div className="flex justify-between gap-3"><span className="text-stone-500">{t('posReceiptDate')}</span><span>{new Intl.DateTimeFormat(lang, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(receipt.createdAt))}</span></div><div className="flex justify-between gap-3"><span className="text-stone-500">{t('posReceiptCustomer')}</span><span>{receipt.customerName}</span></div></div><div className="space-y-3 border-b border-dashed border-stone-300 py-4">{receipt.items.map((item, index) => <div key={`${item.variantId}-${index}`} className="flex justify-between gap-3 text-xs"><div className="min-w-0"><p className="font-bold text-stone-800">{item.productName}</p><p className="mt-0.5 text-stone-500">{formatVariantLabel(item.color, item.size, t)} · {item.sku} · {t('posQuantity')}: {new Intl.NumberFormat(lang).format(item.qty)}</p></div><b className="shrink-0">{formatCurrency(item.unitPrice * item.qty)}</b></div>)}</div><div className="space-y-2 py-4 text-sm"><div className="flex justify-between"><span>{t('posReceiptPayment')}</span><b>{t(receipt.paymentMethod === 'cash' ? 'posReceiptCash' : 'posReceiptInstaPay')}</b></div>{receipt.cashTendered !== null && <><div className="flex justify-between"><span>{t('posReceiptTendered')}</span><span>{formatCurrency(receipt.cashTendered)}</span></div><div className="flex justify-between"><span>{t('posReceiptChange')}</span><span>{formatCurrency(receipt.changeDue)}</span></div></>}<div className="flex justify-between border-t border-stone-300 pt-3 text-base font-black"><span>{t('posReceiptTotal')}</span><span>{formatCurrency(receipt.total)}</span></div></div><div className="receipt-actions mt-2 space-y-3 border-t border-stone-100 pt-4"><label className="block text-start text-xs font-semibold text-stone-600">{t('posReceiptWhatsAppPhone')}<input type="tel" inputMode="tel" dir="ltr" value={receiptPhone} onChange={(event) => setReceiptPhone(event.target.value)} onBlur={() => setReceiptPhoneTouched(true)} placeholder={t('posCustomerPhonePlaceholder')} className="mt-1.5 h-11 w-full rounded-lg border border-stone-300 px-3 text-start text-sm" />{receiptPhoneTouched && receiptPhone.trim() !== '' && !normalizeEgyptianPhone(receiptPhone) && <span className="mt-1 block text-xs text-red-700">{t('posReceiptPhoneInvalid')}</span>}</label><button type="button" onClick={sendReceiptToWhatsApp} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-emerald-700/30 bg-emerald-50 px-3 text-sm font-bold text-emerald-800 hover:bg-emerald-100"><MessageCircle className="size-4" />{t('posReceiptWhatsApp')}</button><div className="grid gap-2 sm:grid-cols-2"><button type="button" onClick={() => window.print()} className="flex min-h-12 items-center justify-center gap-2 rounded-lg border border-stone-200 px-3 text-sm font-semibold text-stone-700 hover:bg-stone-50"><Printer className="size-4" />{t('posPrintReceipt')}</button><button type="button" onClick={startNewSale} className="flex min-h-12 items-center justify-center gap-2 rounded-lg bg-stone-900 px-3 text-sm font-bold text-white hover:bg-stone-800"><CheckCircle2 className="size-4" />{t('posReceiptNewSale')}</button></div></div></section></div>}
   </div>;
 }

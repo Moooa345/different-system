@@ -22,6 +22,7 @@ interface PosCartState {
   removeItem: (variantId: string) => void;
   syncStock: (stockByVariant: Record<string, number>) => void;
   clearCart: () => void;
+  restoreItems: (items: PosCartItem[]) => void;
   subtotal: () => number;
 }
 
@@ -83,5 +84,6 @@ export const usePosCart = create<PosCartState>((set, get) => ({
     set({ items });
   },
   clearCart: () => set({ items: [] }),
+  restoreItems: (items) => set({ items: items.map((item) => ({ ...item, qty: Math.max(1, Math.min(item.qty, item.maxStock)) })).filter((item) => item.maxStock > 0) }),
   subtotal: () => get().items.reduce((sum, item) => sum + item.unitPrice * item.qty, 0),
 }));

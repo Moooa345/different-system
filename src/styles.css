@@ -84,6 +84,8 @@ body, #root { min-height: 100vh; }
 [class~="text-amber-800"], [class~="text-amber-700"] { color: var(--warning); }
 [class~="bg-sky-50"] { background-color: var(--info-soft); }
 [class~="text-sky-700"] { color: var(--info); }
+[class~="bg-indigo-50"] { background-color: var(--info-soft); }
+[class~="text-indigo-700"] { color: var(--info); }
 [class~="bg-red-50"], [class~="bg-red-100"] { background-color: var(--danger-soft); }
 [class~="text-red-700"], [class~="text-red-600"], [class~="text-red-500"] { color: var(--danger); }
 [class~="border-red-200"] { border-color: color-mix(in srgb, var(--danger) 38%, var(--hairline)); }
@@ -125,3 +127,46 @@ option { background-color: var(--surface); color: var(--ink); }
 [dir="rtl"] .store-cart-panel { animation-name: slide-from-left; }
 .dialog-panel { animation: soft-appear .18s ease-out; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .store-cart-panel, .dialog-panel { animation: none; } }
+
+@media print {
+  @page { size: auto; margin: 5mm; }
+  body * { visibility: hidden !important; }
+  #pos-receipt-print, #pos-receipt-print *, #shipping-slip-print, #shipping-slip-print * { visibility: visible !important; }
+  #pos-receipt-print {
+    position: fixed !important;
+    inset: 0 auto auto 50% !important;
+    z-index: 99999 !important;
+    width: 72mm !important;
+    max-width: 72mm !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    overflow: visible !important;
+    transform: translateX(-50%) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #24231f !important;
+    box-shadow: none !important;
+    font-size: 10pt !important;
+  }
+  #pos-receipt-print .receipt-actions { display: none !important; }
+  #shipping-slip-print {
+    position: fixed !important;
+    inset: 0 auto auto 50% !important;
+    z-index: 99999 !important;
+    width: 90mm !important;
+    max-width: 90mm !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 6mm !important;
+    overflow: visible !important;
+    transform: translateX(-50%) !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: #fff !important;
+    color: #24231f !important;
+    box-shadow: none !important;
+    font-size: 10pt !important;
+  }
+}

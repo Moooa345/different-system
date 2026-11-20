@@ -9,6 +9,7 @@ import { useStoreCart } from '../../store/useStoreCart';
 import { StorefrontHeader } from './StorefrontHeader';
 import { formatVariantLabel } from '../../utils/formatVariantLabel';
 import { STORE_WHATSAPP_NUMBER } from '../../config/constants';
+import { normalizeEgyptianPhone } from '../../utils/normalizeEgyptianPhone';
 
 interface ReceiptSummary {
   orderId: string;
@@ -21,12 +22,6 @@ interface ReceiptSummary {
   codFee: number;
   total: number;
 }
-
-const normalizeEgyptianPhone = (phone: string) => {
-  const compact = phone.replace(/[\s()\-]/g, '');
-  const local = compact.startsWith('+20') ? `0${compact.slice(3)}` : compact.startsWith('0020') ? `0${compact.slice(4)}` : compact;
-  return /^01[0125]\d{8}$/.test(local) ? local : null;
-};
 
 export function CheckoutPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
