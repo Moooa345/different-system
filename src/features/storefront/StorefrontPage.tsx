@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowDown, CreditCard, Search, ShoppingBag, Truck } from 'lucide-react';
+import { ArrowDown, CreditCard, RefreshCw, Search, ShoppingBag, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import type { Product, ProductVariant } from '../../lib/types';
@@ -130,7 +130,7 @@ export function StorefrontPage() {
           <div className="max-w-2xl"><p className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-bold text-rose-700"><span>{t('brand')}</span>{lang === 'en' && <><span aria-hidden="true" className="text-[#8A6D35] dark:text-[#C8A86B]">·</span><span lang="ar" dir="rtl" className="font-medium text-[#8A6D35] dark:text-[#C8A86B]">اختاري إطلالتك</span></>}</p><h1 className="mt-3 text-3xl font-black leading-tight tracking-tight text-stone-900 sm:text-4xl">{t('storeTagline')}</h1><p className="mt-2 text-sm leading-7 text-stone-600">{t('heroFashionLine')}</p><button type="button" onClick={() => document.getElementById('catalog-products')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-xl bg-stone-900 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-stone-800">{t('shopNow')}<ArrowDown className="size-4" /></button></div>
           <div className="hidden min-w-48 rounded-3xl border border-white/60 bg-white/45 p-5 text-end backdrop-blur-sm lg:block"><span className="ms-auto grid size-14 place-items-center rounded-2xl bg-rose-100 text-rose-700"><ShoppingBag className="size-7" /></span><p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">{t('brand')}</p><p className="mt-1 text-lg font-black text-stone-800">{t('storeCollection')}</p></div>
         </div>
-        <div className="mt-6 grid gap-2 border-t border-rose-900/10 pt-4 sm:grid-cols-3">{[{ icon: Truck, text: t('trustShipping') }, { icon: CreditCard, text: t('trustPayments') }, { icon: Activity, text: t('trustStock') }].map(({ icon: Icon, text }) => <div key={text} className="flex items-center gap-2 text-xs font-semibold text-stone-700"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/70 text-rose-700"><Icon className="size-4" /></span>{text}</div>)}</div>
+        <div className="mt-6 grid gap-2 border-t border-rose-900/10 pt-4 sm:grid-cols-3">{[{ icon: Truck, text: t('trustShipping') }, { icon: CreditCard, text: t('trustPayments') }, { icon: RefreshCw, text: t('trustStock') }].map(({ icon: Icon, text }) => <div key={text} className="flex items-center gap-2 text-xs font-semibold text-stone-700"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/70 text-rose-700"><Icon className="size-4" /></span>{text}</div>)}</div>
         {lang === 'ar' && <p lang="ar" dir="rtl" className="mt-4 text-xs font-medium tracking-wide text-[#8A6D35] dark:text-[#C8A86B]">اختاري إطلالتك</p>}
       </section>
 
