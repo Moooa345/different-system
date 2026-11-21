@@ -9,8 +9,8 @@ import { useStoreCart } from '../../store/useStoreCart';
 import { StorefrontHeader } from './StorefrontHeader';
 import { StoreCartDrawer } from './StoreCartDrawer';
 import { BrandLogo } from '../../components/layout/BrandLogo';
+import { normalizeProductCategory, type ProductCategoryFilter } from '../../utils/normalizeProductCategory';
 
-type CategoryFilter = 'all' | 'shoes' | 'bags';
 type StoreVariant = Pick<ProductVariant, 'id' | 'product_id' | 'sku' | 'color' | 'size' | 'image_url' | 'unit_sell_price' | 'stock_qty' | 'is_active'>;
 type StoreProduct = Product & { variants: StoreVariant[] };
 
@@ -23,7 +23,7 @@ export function StorefrontPage() {
   const [products, setProducts] = useState<StoreProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [category, setCategory] = useState<CategoryFilter>('all');
+  const [category, setCategory] = useState<ProductCategoryFilter>('all');
   const [sort, setSort] = useState<'newest' | 'price-asc' | 'price-desc'>('newest');
   const [cartOpen, setCartOpen] = useState(false);
   const catalogRef = useRef<StoreProduct[]>([]);
@@ -105,7 +105,7 @@ export function StorefrontPage() {
   const visibleProducts = useMemo(() => {
     const value = query.trim().toLocaleLowerCase(lang);
     const filtered = products.filter((product) => {
-      if (category !== 'all' && product.category !== category) return false;
+      if (category !== 'all' && normalizeProductCategory(product.category) !== category) return false;
       if (!value) return true;
       return product.name.toLocaleLowerCase(lang).includes(value) || product.variants.some((variant) => variant.sku.toLocaleLowerCase(lang).includes(value));
     }).map((product) => {

@@ -3,14 +3,13 @@ import { useTranslation } from '../../i18n/useTranslation';
 import { LanguageSwitcher } from '../../components/layout/LanguageSwitcher';
 import { ThemeToggle } from '../../components/layout/ThemeToggle';
 import { BrandLogo } from '../../components/layout/BrandLogo';
-
-type CategoryFilter = 'all' | 'shoes' | 'bags';
+import type { ProductCategoryFilter } from '../../utils/normalizeProductCategory';
 
 interface StorefrontHeaderProps {
   cartCount: number;
   onOpenCart: () => void;
-  category: CategoryFilter;
-  onCategoryChange: (category: CategoryFilter) => void;
+  category: ProductCategoryFilter;
+  onCategoryChange: (category: ProductCategoryFilter) => void;
   showNavigation?: boolean;
   showCart?: boolean;
 }
@@ -19,7 +18,7 @@ export function StorefrontHeader({ cartCount, onOpenCart, category, onCategoryCh
   const { t, dir, lang } = useTranslation();
   const categories = [
     { value: 'all', label: t('all') },
-    { value: 'shoes', label: t('posShoes') },
+    { value: 'sneakers', label: t('posShoes') },
     { value: 'bags', label: t('posBags') },
   ] as const;
 
