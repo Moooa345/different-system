@@ -12,9 +12,9 @@ function readStoredTheme(): Theme {
   try {
     const stored = localStorage.getItem('store-theme');
     const theme = stored ? JSON.parse(stored)?.state?.theme : null;
-    return theme === 'light' || theme === 'dark' ? theme : 'dark';
+    return theme === 'light' || theme === 'dark' ? theme : 'light';
   } catch {
-    return 'dark';
+    return 'light';
   }
 }
 
