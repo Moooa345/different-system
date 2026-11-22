@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Expand, Minus, Plus, RefreshCw, ShoppingBag, Truck, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, CreditCard, Expand, Minus, Plus, RefreshCw, ShoppingBag, TrendingUp, Truck, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { Product } from '../../lib/types';
@@ -10,6 +10,7 @@ import { StorefrontHeader } from './StorefrontHeader';
 import { StoreCartDrawer } from './StoreCartDrawer';
 import { AlternativesModal } from '../../components/ui/AlternativesModal';
 import { type AlternativeVariant, type TaggedProduct } from '../../utils/getSimilarAlternatives';
+import { formatMonthlySoldLabel } from '../../utils/formatMonthlySoldLabel';
 
 type ProductPageData = Product & { variants: AlternativeVariant[] };
 const NO_COLOR = '__no_color__';
@@ -24,6 +25,7 @@ export function ProductDetailsPage() {
   const removeVariants = useStoreCart((state) => state.removeVariants);
   const cartItems = useStoreCart((state) => state.items);
   const [product, setProduct] = useState<ProductPageData | null>(null);
+  const [soldLast30Days, setSoldLast30Days] = useState(0);
   const [allProducts, setAllProducts] = useState<TaggedProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedColor, setSelectedColor] = useState(NO_COLOR);
@@ -41,9 +43,10 @@ export function ProductDetailsPage() {
   const variantsRef = useRef<AlternativeVariant[]>([]);
 
   const loadCatalog = useCallback(async () => {
-    const [{ data: productRows, error: productsError }, { data: variantRows, error: variantsError }] = await Promise.all([
+    const [{ data: productRows, error: productsError }, { data: variantRows, error: variantsError }, salesResult] = await Promise.all([
       supabase.from('products').select(PRODUCT_COLUMNS).eq('is_active', true).order('created_at', { ascending: false }),
       supabase.from('product_variants').select(VARIANT_COLUMNS).eq('is_active', true),
+      supabase.rpc('get_storefront_product_sales_stats'),
     ]);
     if (productsError || variantsError) {
       setLoading(false);
@@ -61,6 +64,7 @@ export function ProductDetailsPage() {
     const nextProduct = nextCatalog.find((row) => row.id === id) ?? null;
     setLoading(false);
     if (!nextProduct) {
+      setSoldLast30Days(0);
       variantsRef.current = [];
       setProduct(null);
       setShowAlternatives(false);
@@ -68,6 +72,8 @@ export function ProductDetailsPage() {
     }
     variantsRef.current = nextProduct.variants;
     setProduct(nextProduct);
+    setSoldLast30Days(Number(salesResult.error ? 0 : salesResult.data?.find((row) => row.product_id === id)?.sold_last_30_days ?? 0));
+    if (salesResult.error && import.meta.env.DEV) console.warn('[storefront] Product sales stats unavailable.', salesResult.error);
     nextProduct.variants.forEach((variant) => updateVariantStock(variant.id, variant.stock_qty, variant.is_active));
     const firstColor = nextProduct.variants.find((variant) => variant.stock_qty > 0)?.color?.trim()
       || nextProduct.variants[0]?.color?.trim() || null;
@@ -204,6 +210,7 @@ export function ProductDetailsPage() {
   if (loading) return <div dir={dir} className="min-h-screen bg-stone-50">{header}<div className="grid min-h-[60vh] place-items-center text-sm text-stone-500">{t('storeLoading')}</div><StoreCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} /></div>;
   if (!product) return <div dir={dir} className="min-h-screen bg-stone-50">{header}<main className="mx-auto grid min-h-[65vh] max-w-2xl place-items-center px-4 py-12"><section className="w-full rounded-3xl border border-stone-200 bg-white p-8 text-center"><ShoppingBag className="mx-auto size-10 text-stone-300" /><h1 className="mt-4 text-xl font-black text-stone-900">{t('pdpNotFound')}</h1><Link to="/" className="mt-5 inline-flex rounded-xl bg-stone-900 px-5 py-3 text-sm font-bold text-white">{t('pdpBackToShop')}</Link></section></main><StoreCartDrawer open={cartOpen} onClose={() => setCartOpen(false)} /></div>;
 
+  const monthlySoldLabel = formatMonthlySoldLabel(soldLast30Days, lang);
   return <div dir={dir} className="min-h-screen bg-stone-50 text-stone-900">
     {header}
     <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6 sm:py-8">
@@ -219,7 +226,7 @@ export function ProductDetailsPage() {
         </section>
 
         <section className="min-w-0 space-y-6 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24">
-          <div><span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span><h1 className="mt-3 text-2xl font-black leading-tight text-stone-900 sm:text-3xl">{product.name}</h1><p className="mt-2 text-2xl font-black text-rose-700">{formatCurrency(price)}</p></div>
+          <div><span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span><h1 className="mt-3 text-2xl font-black leading-tight text-stone-900 sm:text-3xl">{product.name}</h1><p className="mt-2 text-2xl font-black text-rose-700">{formatCurrency(price)}</p>{monthlySoldLabel && <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-stone-500"><TrendingUp className="size-4 text-[#8A6D35] dark:text-[#C8A86B]" aria-hidden="true" />{monthlySoldLabel}</p>}</div>
           {colorOptions.length > 0 && <fieldset><legend className="mb-3 text-sm font-bold text-stone-800">{t('pdpChooseColor')}</legend><div className="flex flex-wrap gap-2">{colorOptions.map((color) => <button key={color} type="button" onClick={() => chooseColor(color)} aria-pressed={selectedColor === color} className={`min-h-10 rounded-xl border px-4 py-2 text-sm font-semibold transition ${selectedColor === color ? 'border-rose-500 bg-rose-50 text-rose-800' : 'border-stone-200 text-stone-600 hover:border-stone-400'}`}>{color === NO_COLOR ? t('oneColor') : color}</button>)}</div></fieldset>}
           <fieldset><div className="mb-3 flex items-center justify-between gap-3"><legend className="text-sm font-bold text-stone-800">{t('pdpChooseSize')}</legend><button type="button" onClick={() => setSizeGuideOpen(true)} className="text-xs font-semibold text-rose-700 underline underline-offset-4">{t('pdpSizeGuide')}</button></div>{colorVariants.length ? <div className="flex flex-wrap gap-2">{colorVariants.map((variant) => {
             const selected = selectedVariantId === variant.id;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, CreditCard, RefreshCw, Search, ShoppingBag, Sparkles, Truck } from 'lucide-react';
+import { ArrowDown, CreditCard, RefreshCw, Search, ShoppingBag, Sparkles, TrendingUp, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import type { Product, ProductVariant } from '../../lib/types';
@@ -10,6 +10,8 @@ import { StorefrontHeader } from './StorefrontHeader';
 import { StoreCartDrawer } from './StoreCartDrawer';
 import { BrandLogo } from '../../components/layout/BrandLogo';
 import { normalizeProductCategory, type ProductCategoryFilter } from '../../utils/normalizeProductCategory';
+import { getAutoBestSellerIds } from '../../utils/getAutoBestSellerIds';
+import { formatMonthlySoldLabel } from '../../utils/formatMonthlySoldLabel';
 
 type StoreVariant = Pick<ProductVariant, 'id' | 'product_id' | 'sku' | 'color' | 'size' | 'image_url' | 'unit_sell_price' | 'stock_qty' | 'is_active'>;
 type StoreProduct = Product & { variants: StoreVariant[] };
@@ -21,6 +23,7 @@ export function StorefrontPage() {
   const removeVariants = useStoreCart((state) => state.removeVariants);
   const cartItems = useStoreCart((state) => state.items);
   const [products, setProducts] = useState<StoreProduct[]>([]);
+  const [salesByProduct, setSalesByProduct] = useState<Record<string, { sold_last_30_days: number; total_sold: number }>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ProductCategoryFilter>('all');
@@ -31,9 +34,10 @@ export function StorefrontPage() {
   const loadErrorMessage = t('storeLoadError');
 
   const loadCatalog = useCallback(async (showError = true) => {
-    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
+    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }, salesResult] = await Promise.all([
       supabase.from('products').select('id, name, description, category, brand, is_best_seller, compare_at_price, image_url, image_urls, gallery_urls, style_tags, is_active, created_at, updated_at').eq('is_active', true).order('created_at', { ascending: false }),
       supabase.from('product_variants').select('id, product_id, sku, color, size, image_url, unit_sell_price, stock_qty, is_active').eq('is_active', true),
+      supabase.rpc('get_storefront_product_sales_stats'),
     ]);
     if (productError || variantError) {
       if (showError) toast.error(loadErrorMessage);
@@ -41,6 +45,9 @@ export function StorefrontPage() {
       return;
     }
     const activeProducts = productRows ?? [];
+    const nextSalesByProduct = Object.fromEntries((salesResult.error ? [] : salesResult.data ?? []).map((row) => [row.product_id, { sold_last_30_days: Number(row.sold_last_30_days), total_sold: Number(row.total_sold) }]));
+    setSalesByProduct(nextSalesByProduct);
+    if (salesResult.error && import.meta.env.DEV) console.warn('[storefront] Sales stats unavailable; showing manual pins only.', salesResult.error);
     const activeProductIds = new Set(activeProducts.map((product) => product.id));
     const activeVariants = (variantRows ?? []).filter((variant) => activeProductIds.has(variant.product_id));
     const grouped = new Map<string, StoreVariant[]>();
@@ -134,7 +141,13 @@ export function StorefrontPage() {
     const sellPrice = Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity);
     return Number.isFinite(sellPrice) && product.compare_at_price != null && product.compare_at_price > sellPrice;
   });
-  const bestSellerProducts = visibleProducts.filter((product) => product.is_best_seller);
+  const monthlySales = useMemo(() => Object.fromEntries(Object.entries(salesByProduct).map(([id, stats]) => [id, stats.sold_last_30_days])), [salesByProduct]);
+  const autoBestSellerIds = useMemo(() => getAutoBestSellerIds(products, monthlySales), [products, monthlySales]);
+  const bestSellerProducts = visibleProducts
+    .filter((product) => product.is_best_seller || autoBestSellerIds.has(product.id))
+    .sort((a, b) => Number(b.is_best_seller) - Number(a.is_best_seller)
+      || (monthlySales[b.id] ?? 0) - (monthlySales[a.id] ?? 0)
+      || a.name.localeCompare(b.name));
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const renderProductCard = (product: StoreProduct) => {
@@ -147,16 +160,19 @@ export function StorefrontPage() {
     const hoverImage = product.gallery_urls.length >= 2 ? product.gallery_urls[1] : null;
     const previewColors = [...new Set(product.variants.map((variant) => variant.color?.trim() || t('oneColor')))].slice(0, 3);
     const totalStock = product.variants.reduce((sum, variant) => sum + (variant.is_active ? variant.stock_qty : 0), 0);
-    return <article key={product.id} className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition duration-300 hover:-translate-y-1 dark:bg-stone-900 ${product.is_best_seller ? 'border-[#C8A86A]/45 hover:border-[#C8A86A] hover:shadow-[0_12px_38px_rgba(200,169,106,0.22)] dark:border-[#C8A86A]/45 dark:hover:border-[#C8A86A] dark:hover:shadow-[0_12px_38px_rgba(200,169,106,0.18)]' : 'border-stone-200 hover:shadow-lg dark:border-stone-700'} `}>
+    const isBestSeller = product.is_best_seller || autoBestSellerIds.has(product.id);
+    const monthlySoldLabel = formatMonthlySoldLabel(monthlySales[product.id] ?? 0, lang);
+    return <article key={product.id} className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition duration-300 hover:-translate-y-1 dark:bg-stone-900 ${isBestSeller ? 'border-[#C8A86A]/45 hover:border-[#C8A86A] hover:shadow-[0_12px_38px_rgba(200,169,106,0.22)] dark:border-[#C8A86A]/45 dark:hover:border-[#C8A86A] dark:hover:shadow-[0_12px_38px_rgba(200,169,106,0.18)]' : 'border-stone-200 hover:shadow-lg dark:border-stone-700'} `}>
       <Link to={`/product/${product.id}`} aria-label={`${t('viewProductDetails')}: ${product.name}`} className="group relative block aspect-[4/5] overflow-hidden bg-stone-100">
         {image ? <><img src={image} alt={product.name} loading="lazy" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-105" />{hoverImage && <img src={hoverImage} alt="" aria-hidden="true" loading="lazy" className="absolute inset-0 size-full object-cover opacity-0 transition-opacity duration-500 group-hover:opacity-100" />}</> : <div className="grid size-full place-items-center text-stone-300"><ShoppingBag className="size-12" /></div>}
         <span className="absolute start-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-stone-600 backdrop-blur">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span>
-        {product.is_best_seller && <span className="absolute start-3 top-12 inline-flex items-center gap-1.5 rounded-md border border-[#C8A86A] bg-[#141414] px-2.5 py-1.5 text-[11px] font-bold text-[#D4AF37] shadow-sm"><Sparkles className="size-3.5" aria-hidden="true" />{t('bestSellerBadge')}</span>}
+        {isBestSeller && <span className="absolute start-3 top-12 inline-flex items-center gap-1.5 rounded-md border border-[#C8A86A] bg-[#141414] px-2.5 py-1.5 text-[11px] font-bold text-[#D4AF37] shadow-sm"><Sparkles className="size-3.5" aria-hidden="true" />{t('bestSellerBadge')}</span>}
         {isOffer && <span className="absolute end-3 top-3 rounded-md bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-950 shadow-sm">{t('discountPercent').replace('{percent}', new Intl.NumberFormat(lang).format(discountPercent))}</span>}
         <span className={`absolute end-3 bottom-3 rounded-md px-2.5 py-1 text-[11px] font-bold backdrop-blur ${totalStock === 0 ? 'bg-stone-900 text-white' : totalStock <= 3 ? 'bg-amber-50/95 text-amber-800' : 'hidden'}`}>{totalStock === 0 ? t('storeSoldOut') : t('storeLowStock')}</span>
       </Link>
       <div className="space-y-3 p-4">
         <div className="flex items-start justify-between gap-2"><div className="min-w-0"><Link to={`/product/${product.id}`} className="block text-start font-bold text-stone-900 transition hover:text-rose-700"><h3 className="line-clamp-2">{product.name}</h3></Link>{product.brand && <p className="mt-1 text-xs font-medium tracking-wide text-stone-500">{product.brand}</p>}</div><div className="shrink-0 text-end">{isOffer && <p className="text-xs text-stone-500 line-through">{formatCurrency(compareAtPrice)}</p>}<p className={`text-sm font-black ${isOffer ? 'text-rose-700' : 'text-stone-900'}`}>{t('storeStartingPrice').replace('{price}', formatCurrency(startingPrice))}</p></div></div>
+        {monthlySoldLabel && <p className="inline-flex items-center gap-1.5 text-[11px] font-medium text-stone-500"><TrendingUp className="size-3.5 shrink-0 text-[#8A6D35] dark:text-[#C8A86B]" aria-hidden="true" />{monthlySoldLabel}</p>}
         <div className="flex min-h-7 items-center justify-between gap-2"><div className="flex flex-wrap gap-1.5">{previewColors.map((color) => <span key={color} className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] text-stone-600">{color}</span>)}{!previewColors.length && <span className="text-xs text-stone-400">{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span>}</div><span className={`shrink-0 text-[11px] font-semibold ${totalStock > 0 ? 'text-emerald-700' : 'text-stone-400'}`}>{totalStock > 0 ? `${new Intl.NumberFormat(lang).format(totalStock)} ${t('stock')}` : t('storeOutOfStock')}</span></div>
         <Link to={`/product/${product.id}`} className="block border-t border-stone-100 pt-3 text-start text-xs font-bold text-rose-700">{t('viewProductDetails')} <span aria-hidden="true">{dir === 'rtl' ? '←' : '→'}</span></Link>
       </div>

@@ -10,6 +10,11 @@ export type Product = {
   is_best_seller: boolean; compare_at_price: number | null;
   image_url: string | null; image_urls: string[]; gallery_urls: string[]; style_tags: string[]; is_active: boolean; created_at: string; updated_at: string;
 }
+export type StorefrontProductSalesStat = {
+  product_id: string;
+  sold_last_30_days: number;
+  total_sold: number;
+}
 export type ProductVariant = {
   id: string; product_id: string; sku: string; color: string | null; size: string | null;
   image_url: string | null;
@@ -52,6 +57,7 @@ export interface Database {
       update_order_status_atomic: { Args: { p_order_id: string; p_new_status: string }; Returns: undefined };
       cancel_order_atomic: { Args: { p_order_id: string }; Returns: undefined };
       adjust_variant_stock_atomic: { Args: { p_variant_id: string; p_delta: number; p_reason?: string }; Returns: number };
+      get_storefront_product_sales_stats: { Args: Record<string, never>; Returns: StorefrontProductSalesStat[] };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

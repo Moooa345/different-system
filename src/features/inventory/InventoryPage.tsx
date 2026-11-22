@@ -7,6 +7,7 @@ import { supabase } from '../../lib/supabase';
 import { ProductFormModal } from './ProductFormModal';
 import { useTranslation } from '../../i18n/useTranslation';
 import { BulkOffersModal } from './BulkOffersModal';
+import { getAutoBestSellerIds } from '../../utils/getAutoBestSellerIds';
 
 type ProductWithVariants = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
@@ -16,6 +17,7 @@ export function InventoryPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
   const [searchParams] = useSearchParams();
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
+  const [salesByProduct, setSalesByProduct] = useState<Record<string, { sold_last_30_days: number; total_sold: number }>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('all');
@@ -27,9 +29,10 @@ export function InventoryPage() {
   const [savingStockId, setSavingStockId] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
-    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
+    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }, salesResult] = await Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
       supabase.from('product_variants').select('*').order('created_at'),
+      supabase.rpc('get_storefront_product_sales_stats'),
     ]);
     if (productError || variantError) {
       toast.error(t('loadProductsError'));
@@ -38,7 +41,10 @@ export function InventoryPage() {
     }
     const grouped = new Map<string, ProductVariant[]>();
     for (const variant of variantRows ?? []) grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
-    setProducts((productRows ?? []).map((product) => ({ ...product, variants: grouped.get(product.id) ?? [] })));
+    const nextProducts = (productRows ?? []).map((product) => ({ ...product, variants: grouped.get(product.id) ?? [] }));
+    setProducts(nextProducts);
+    setSalesByProduct(Object.fromEntries((salesResult.error ? [] : salesResult.data ?? []).map((row) => [row.product_id, { sold_last_30_days: Number(row.sold_last_30_days), total_sold: Number(row.total_sold) }])));
+    if (salesResult.error && import.meta.env.DEV) console.warn('[inventory] Sales stats unavailable.', salesResult.error);
     setLoading(false);
   }, []);
 
@@ -66,6 +72,9 @@ export function InventoryPage() {
     low: products.filter((product) => product.variants.some((variant) => variant.stock_qty >= 1 && variant.stock_qty <= 3)).length,
     out: products.filter((product) => product.variants.some((variant) => variant.stock_qty === 0)).length,
   }), [products]);
+
+  const monthlySales = useMemo(() => Object.fromEntries(Object.entries(salesByProduct).map(([id, stats]) => [id, stats.sold_last_30_days])), [salesByProduct]);
+  const autoBestSellerIds = useMemo(() => getAutoBestSellerIds(products, monthlySales), [products, monthlySales]);
 
   async function toggleActive(product: ProductWithVariants) {
     setSavingId(product.id);
@@ -113,10 +122,14 @@ export function InventoryPage() {
           const image = product.image_url ?? product.gallery_urls[0] ?? product.variants.find((variant) => variant.image_url)?.image_url ?? product.image_urls[0];
           const out = stock === 0;
           const low = stock > 0 && stock <= 3;
+          const isAutoSeller = autoBestSellerIds.has(product.id);
+          const isManualSeller = product.is_best_seller;
+          const sellerBadge = isManualSeller && isAutoSeller ? t('adminManualAndAuto') : isManualSeller ? t('adminManualPinned') : isAutoSeller ? t('adminAutoTopSeller') : null;
+          const sold30 = salesByProduct[product.id]?.sold_last_30_days ?? 0;
           return <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition hover:shadow-md">
             <div className="flex gap-4 p-4 sm:p-5">
               <div className="grid aspect-[4/5] w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-stone-100 text-stone-400 sm:w-24">{image ? <img src={image} alt={product.name} className="size-full object-cover" /> : <ImagePlus className="size-7" />}</div>
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{product.is_best_seller && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">{t('bestSellers')}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</div><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button></div>
+              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</div><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button></div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span>{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span><span className={`rounded-full px-2.5 py-1 font-bold ${out ? 'bg-red-50 text-red-700' : low ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{t('stock')}: {new Intl.NumberFormat(lang).format(stock)} · {out ? t('opsOutOfStock') : low ? t('lowStock') : t('posStockInStock')}</span></div>
                 <div className="mt-4 space-y-2">{product.variants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></div></div>)}</div>
               </div>
