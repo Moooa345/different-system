@@ -17,6 +17,8 @@ const OrdersPage = lazy(() => import('./features/orders/OrdersPage').then((modul
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const ProductDetailsPage = lazy(() => import('./features/storefront/ProductDetailsPage').then((module) => ({ default: module.ProductDetailsPage })));
 const ShiftManagementPage = lazy(() => import('./features/dashboard/ShiftManagementPage').then((module) => ({ default: module.ShiftManagementPage })));
+const ReturnsPage = lazy(() => import('./features/orders/ReturnsPage').then((module) => ({ default: module.ReturnsPage })));
+const ExpensesPage = lazy(() => import('./features/dashboard/ExpensesPage').then((module) => ({ default: module.ExpensesPage })));
 
 function AdminIndexRedirect() {
   const role = useStaffStore((state) => state.role);
@@ -52,6 +54,8 @@ export default function App() {
         <Route path="inventory" element={<InventoryPage />} />
         <Route path="orders" element={<ProtectedRoute ownerOnly><OrdersPage /></ProtectedRoute>} />
         <Route path="shifts" element={<ProtectedRoute ownerOnly><ShiftManagementPage /></ProtectedRoute>} />
+        <Route path="returns" element={<ReturnsPage />} />
+        <Route path="expenses" element={<ProtectedRoute ownerOnly><ExpensesPage /></ProtectedRoute>} />
       </Route>
       <Route path="/" element={<StorefrontPage />} />
       <Route path="/product/:id" element={<ProductDetailsPage />} />

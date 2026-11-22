@@ -39,6 +39,17 @@ export type StockLog = {
   id: string; variant_id: string | null; order_id: string | null; quantity_delta: number;
   reason: StockLogReason; note: string | null; created_by: string | null; created_at: string;
 }
+export type ProductReturn = {
+  id: string; order_id: string | null; product_id: string | null; variant_id: string | null;
+  product_name_snapshot: string; variant_label_snapshot: string; quantity: number; refund_amount: number;
+  refund_method: 'cash' | 'instapay' | 'card' | 'wallet'; reason: string | null; shift_id: string | null;
+  processed_by: string | null; processed_by_name: string | null; created_at: string;
+}
+export type Expense = {
+  id: string; category_group: 'operational' | 'petty_damages';
+  sub_category: 'rent' | 'electricity' | 'taxes' | 'salaries' | 'other_operational' | 'damaged_goods' | 'renovations' | 'hospitality' | 'emergency' | 'other_petty';
+  title: string; amount: number; expense_date: string; notes: string | null; created_by: string | null; created_at: string;
+}
 
 export interface Database {
   public: {
@@ -52,6 +63,8 @@ export interface Database {
       orders: { Row: Order; Insert: Omit<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method' | 'cashier_id' | 'shift_id'> & Partial<Pick<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method' | 'cashier_id' | 'shift_id'>>; Update: Partial<Order>; Relationships: [] };
       order_items: { Row: OrderItem; Insert: Omit<OrderItem, 'id' | 'created_at'> & Partial<Pick<OrderItem, 'id' | 'created_at'>>; Update: Partial<OrderItem>; Relationships: [] };
       stock_logs: { Row: StockLog; Insert: Omit<StockLog, 'id' | 'created_at'> & Partial<Pick<StockLog, 'id' | 'created_at'>>; Update: Partial<StockLog>; Relationships: [] };
+      product_returns: { Row: ProductReturn; Insert: Omit<ProductReturn, 'id' | 'created_at'> & Partial<Pick<ProductReturn, 'id' | 'created_at'>>; Update: Partial<ProductReturn>; Relationships: [] };
+      expenses: { Row: Expense; Insert: Omit<Expense, 'id' | 'created_at' | 'created_by'> & Partial<Pick<Expense, 'id' | 'created_at' | 'created_by'>>; Update: Partial<Expense>; Relationships: [] };
     };
     Views: Record<string, never>;
     Functions: {
@@ -72,6 +85,8 @@ export interface Database {
       cancel_order_atomic: { Args: { p_order_id: string }; Returns: undefined };
       adjust_variant_stock_atomic: { Args: { p_variant_id: string; p_delta: number; p_reason?: string }; Returns: number };
       get_storefront_product_sales_stats: { Args: Record<string, never>; Returns: StorefrontProductSalesStat[] };
+      process_product_return: { Args: { p_variant_id: string; p_quantity: number; p_refund_amount: number; p_refund_method: ProductReturn['refund_method']; p_order_id?: string | null; p_reason?: string | null }; Returns: ProductReturn };
+      get_returns_summary: { Args: { p_since?: string | null; p_until?: string | null }; Returns: { refund_total: number; return_count: number }[] };
     };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;

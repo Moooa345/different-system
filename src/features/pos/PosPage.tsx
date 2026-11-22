@@ -13,6 +13,7 @@ import { normalizeEgyptianPhone } from '../../utils/normalizeEgyptianPhone';
 import { ShiftControls } from './ShiftControls';
 import { useStaffStore } from '../../store/staffStore';
 import { useAuthStore } from '../../store/authStore';
+import { Link } from 'react-router-dom';
 
 type CatalogProduct = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
@@ -276,7 +277,7 @@ export function PosPage() {
       <ShiftControls />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-black text-stone-900">{t('posCatalogTitle')}</h1><p className="mt-1 text-sm text-stone-500">{t('posCatalogSubtitle')}</p></div>
-        <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" />{t('posSaleInProgress')}</span>
+        <div className="flex flex-wrap items-center gap-2"><Link to="/admin/returns" className="inline-flex min-h-11 items-center gap-2 rounded-md border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-700"><PackageOpen className="size-4" />{t('returnsTitle')}</Link><span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" />{t('posSaleInProgress')}</span></div>
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row">

@@ -14,6 +14,8 @@ export function DashboardPage() {
   const [range, setRange] = useState<Range>('7days');
   const [orders, setOrders] = useState<Order[]>([]);
   const [items, setItems] = useState<OrderItem[]>([]);
+  const [returnTotal, setReturnTotal] = useState(0);
+  const [expenseTotal, setExpenseTotal] = useState(0);
   const [lowStock, setLowStock] = useState(0);
   const [outOfStock, setOutOfStock] = useState(0);
   const [todayOrders, setTodayOrders] = useState<Array<{ channel: Order['channel']; created_at: string }>>([]);
@@ -30,12 +32,23 @@ export function DashboardPage() {
     if (range === '30days') since.setDate(since.getDate() - 30);
     let orderQuery = supabase.from('orders').select('*').neq('status', 'cancelled').order('created_at', { ascending: false });
     if (range !== 'all') orderQuery = orderQuery.gte('created_at', since.toISOString());
-    const [{ data: orderRows, error }, { data: variants }, { data: outVariants }, { data: todayRows }, { data: pendingRows }] = await Promise.all([
+    const returnedOrderQuery = supabase.from('orders').select('id,total_egp').eq('status', 'returned').order('updated_at', { ascending: false });
+    if (range !== 'all') returnedOrderQuery.gte('updated_at', since.toISOString());
+    let returnsQuery = supabase.from('product_returns').select('refund_amount,order_id,created_at').order('created_at', { ascending: false });
+    let expensesQuery = supabase.from('expenses').select('amount,expense_date').order('expense_date', { ascending: false });
+    if (range !== 'all') {
+      returnsQuery = returnsQuery.gte('created_at', since.toISOString());
+      expensesQuery = expensesQuery.gte('expense_date', since.toISOString().slice(0, 10));
+    }
+    const [{ data: orderRows, error }, { data: variants }, { data: outVariants }, { data: todayRows }, { data: pendingRows }, { data: returnRows }, { data: returnedOrderRows }, { data: expenseRows }] = await Promise.all([
       orderQuery,
       supabase.from('product_variants').select('id').eq('is_active', true).gte('stock_qty', 1).lte('stock_qty', 3),
       supabase.from('product_variants').select('id').eq('is_active', true).eq('stock_qty', 0),
       supabase.from('orders').select('channel, created_at').gte('created_at', todayStart.toISOString()),
       supabase.from('orders').select('id').eq('channel', 'storefront').eq('status', 'pending'),
+      returnsQuery,
+      returnedOrderQuery,
+      expensesQuery,
     ]);
     if (error) { toast.error(t('ordersLoadError')); setLoading(false); return; }
     const list = orderRows ?? [];
@@ -46,6 +59,10 @@ export function DashboardPage() {
     setOutOfStock(outVariants?.length ?? 0);
     setTodayOrders(todayRows ?? []);
     setPendingOnlineCount(pendingRows?.length ?? 0);
+    const linkedOrderIds = new Set((returnRows ?? []).map((row) => row.order_id).filter((id): id is string => Boolean(id)));
+    const legacyReturnedRefunds = (returnedOrderRows ?? []).filter((row) => !linkedOrderIds.has(row.id)).reduce((sum, row) => sum + Number(row.total_egp), 0);
+    setReturnTotal((returnRows ?? []).reduce((sum, row) => sum + Number(row.refund_amount), 0) + legacyReturnedRefunds);
+    setExpenseTotal((expenseRows ?? []).reduce((sum, row) => sum + Number(row.amount), 0));
     setLoading(false);
   }, [range, lang]);
 
@@ -53,7 +70,8 @@ export function DashboardPage() {
 
   const analytics = useMemo(() => {
     const revenue = orders.reduce((sum, order) => sum + Number(order.total_egp), 0);
-    const profit = items.reduce((sum, item) => sum + (Number(item.unit_sell_price) - Number(item.unit_cost_price)) * item.quantity, 0);
+    const grossProfit = items.reduce((sum, item) => sum + (Number(item.unit_sell_price) - Number(item.unit_cost_price)) * item.quantity, 0);
+    const profit = grossProfit - returnTotal - expenseTotal;
     const sourceRevenue = { pos: 0, storefront: 0 };
     const sourceOrders = { pos: 0, storefront: 0 };
     for (const order of orders) { sourceRevenue[order.channel] += Number(order.total_egp); sourceOrders[order.channel] += 1; }
@@ -65,8 +83,8 @@ export function DashboardPage() {
       current.units += item.quantity; current.revenue += Number(item.line_total_egp); productAgg.set(item.product_name, current);
     }
     const topProducts = [...productAgg.values()].sort((a, b) => b.units - a.units).slice(0, 5);
-    return { revenue, profit, sourceRevenue, sourceOrders, statuses, topProducts };
-  }, [orders, items]);
+    return { revenue, grossProfit, profit, sourceRevenue, sourceOrders, statuses, topProducts };
+  }, [orders, items, returnTotal, expenseTotal]);
 
   const maxSourceRevenue = Math.max(analytics.sourceRevenue.pos, analytics.sourceRevenue.storefront, 1);
   const localTodayStart = new Date(); localTodayStart.setHours(0, 0, 0, 0);
@@ -94,6 +112,7 @@ export function DashboardPage() {
   return <section dir={dir} className="space-y-6 tabular-nums"><div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="text-2xl font-black">{t('dashboardTitle')}</h1><p className="mt-1 text-sm text-stone-500">{t('dashboard')}</p></div><div className="flex flex-wrap gap-2">{rangeOptions.map((option) => <button key={option.id} onClick={() => setRange(option.id)} className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold ${range === option.id ? 'bg-stone-900 text-white' : 'border border-stone-200 bg-white text-stone-600'}`}>{t(option.key)}</button>)}</div></div>
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{operationsCards.map(({ label, value, sub, icon: Icon, tone, link }) => <Link key={label} to={link ?? '/admin/dashboard'} className="rounded-lg border border-stone-200 bg-white p-4 transition hover:border-rose-300"><div className="flex items-center justify-between gap-2"><span className="text-xs font-semibold text-stone-500">{label}</span><span className={`grid size-9 place-items-center rounded-md ${tone}`}><Icon className="size-4" /></span></div><p className="mt-3 text-xl font-black text-stone-900">{value}</p>{sub && <p className="mt-1 text-[11px] text-stone-500">{sub}</p>}</Link>)}</div>
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{cards.map(({ label, value, sub, icon: Icon, tone, link }) => <Link key={label} to={link ?? '#'} onClick={link ? undefined : (e) => e.preventDefault()} className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between"><span className="text-sm font-semibold text-stone-500">{label}</span><span className={`grid size-10 place-items-center rounded-xl ${tone}`}><Icon className="size-5" /></span></div><p className="mt-4 text-2xl font-black text-stone-900">{value}</p>{sub && <p className="mt-1 text-xs text-stone-500">{sub}</p>}</Link>)}</div>
+    <section className="grid gap-3 rounded-lg border border-stone-200 bg-white p-4 sm:grid-cols-4"><div><p className="text-xs text-stone-500">{t('profitGross')}</p><p className="mt-1 font-bold tabular-nums text-stone-900">{formatCurrency(analytics.grossProfit)}</p></div><div><p className="text-xs text-stone-500">{t('profitReturns')}</p><p className="mt-1 font-bold tabular-nums text-amber-800">− {formatCurrency(returnTotal)}</p></div><div><p className="text-xs text-stone-500">{t('profitExpenses')}</p><p className="mt-1 font-bold tabular-nums text-red-700">− {formatCurrency(expenseTotal)}</p></div><div><p className="text-xs font-semibold text-stone-600">{t('profitNet')}</p><p className="mt-1 text-lg font-black tabular-nums text-[#9A7A3D]">{formatCurrency(analytics.profit)}</p></div></section>
     {loading ? <div className="rounded-2xl border bg-white p-10 text-center text-stone-500">{t('loadingInventory')}</div> : orders.length === 0 ? <div className="rounded-2xl border border-dashed bg-white p-10 text-center text-stone-500">{t('noAnalytics')}</div> : <div className="grid gap-5 xl:grid-cols-2">
       <section className="rounded-2xl border border-stone-200 bg-white p-5"><h2 className="font-bold">{t('revenueBySource')}</h2><div className="mt-5 space-y-5">{(['storefront', 'pos'] as const).map((sourceName) => <div key={sourceName}><div className="mb-2 flex justify-between text-sm"><span>{t(sourceName === 'pos' ? 'sourcePos' : 'sourceOnline')}</span><b className="tabular-nums">{formatCurrency(analytics.sourceRevenue[sourceName])}</b></div><div className="h-3 overflow-hidden rounded-full bg-stone-100"><div className={`h-full rounded-full ${sourceName === 'pos' ? 'bg-sky-500' : 'bg-rose-500'}`} style={{ width: `${analytics.sourceRevenue[sourceName] / maxSourceRevenue * 100}%` }} /></div><p className="mt-1 text-xs text-stone-400">{new Intl.NumberFormat(lang).format(analytics.sourceOrders[sourceName])} {t('totalOrders')}</p></div>)}</div><h3 className="mt-6 text-sm font-bold">{t('ordersByStatus')}</h3><div className="mt-3 flex flex-wrap gap-2">{Object.entries(analytics.statuses).map(([key, count]) => <span key={key} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusTone(key)}`}>{t((statusNames[key] ?? 'statusPending') as 'statusPending')} · {new Intl.NumberFormat(lang).format(count)}</span>)}</div></section>
       <section className="rounded-2xl border border-stone-200 bg-white p-5"><h2 className="font-bold">{t('topProducts')}</h2>{analytics.topProducts.length ? <div className="mt-3 overflow-x-auto"><table className="w-full text-start text-sm"><thead className="text-xs text-stone-400"><tr><th className="py-2">{t('item')}</th><th className="py-2">{t('unitsSold')}</th><th className="py-2">{t('revenue')}</th></tr></thead><tbody className="divide-y">{analytics.topProducts.map((product) => <tr key={product.name}><td className="py-3 font-semibold">{product.name}</td><td className="py-3">{product.units}</td><td className="py-3">{formatCurrency(product.revenue)}</td></tr>)}</tbody></table></div> : <p className="py-8 text-center text-sm text-stone-500">{t('noAnalytics')}</p>}</section>
