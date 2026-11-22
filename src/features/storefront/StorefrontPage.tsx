@@ -203,14 +203,14 @@ export function StorefrontPage() {
         </div>
       </section>
 
-      {!loading && offerProducts.length > 0 && <section aria-labelledby="store-offers-title" className="mb-10 rounded-2xl border border-amber-200/70 bg-amber-50/60 p-4 sm:p-6 dark:border-amber-900/40 dark:bg-amber-950/10">
-        <div className="mb-4 flex items-end justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-300">Different Store</p><h2 id="store-offers-title" className="mt-1 text-xl font-bold text-stone-900 dark:text-stone-100">{t('specialOffers')}</h2></div></div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{offerProducts.map(renderProductCard)}</div>
-      </section>}
-
       {!loading && bestSellerProducts.length > 0 && <section aria-labelledby="store-best-sellers-title" className="mb-10">
         <div className="mb-4"><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A6D35] dark:text-[#C8A86B]">Different Store</p><h2 id="store-best-sellers-title" className="mt-1 text-xl font-bold text-stone-900 dark:text-stone-100">{t('bestSellers')}</h2></div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{bestSellerProducts.map(renderProductCard)}</div>
+      </section>}
+
+      {!loading && offerProducts.length > 0 && <section aria-labelledby="store-offers-title" className="mb-10 rounded-2xl border border-amber-200/70 bg-amber-50/60 p-4 sm:p-6 dark:border-amber-900/40 dark:bg-amber-950/10">
+        <div className="mb-4 flex items-end justify-between gap-3"><div><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800 dark:text-amber-300">Different Store</p><h2 id="store-offers-title" className="mt-1 text-xl font-bold text-stone-900 dark:text-stone-100">{t('specialOffers')}</h2></div></div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{offerProducts.map(renderProductCard)}</div>
       </section>}
 
       {loading ? <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-label={t('storeLoading')} aria-busy="true">{Array.from({ length: 4 }, (_, index) => <div key={index} className="overflow-hidden rounded-lg border border-stone-200 bg-white"><div className="aspect-[4/5] animate-pulse bg-stone-100" /><div className="space-y-3 p-4"><div className="h-4 w-3/4 animate-pulse rounded bg-stone-100" /><div className="h-3 w-1/2 animate-pulse rounded bg-stone-100" /></div></div>)}</div> : visibleProducts.length === 0 ? <div className="grid min-h-64 place-items-center rounded-2xl border border-dashed border-stone-300 bg-white text-sm text-stone-500">{t('storeNoProducts')}</div> :
