@@ -36,6 +36,9 @@ export function ProductFormModal({ product, variants, onClose, onSaved }: Produc
   const [name, setName] = useState(product?.name ?? '');
   const [description, setDescription] = useState(product?.description ?? '');
   const [category, setCategory] = useState<'sneakers' | 'bags'>(product?.category === 'bags' ? 'bags' : 'sneakers');
+  const [brand, setBrand] = useState(product?.brand ?? '');
+  const [bestSeller, setBestSeller] = useState(product?.is_best_seller ?? false);
+  const [compareAtPrice, setCompareAtPrice] = useState(product?.compare_at_price == null ? '' : String(product.compare_at_price));
   const [active, setActive] = useState(product?.is_active ?? true);
   const [tags, setTags] = useState<string[]>(normalizeTags(product?.style_tags ?? []));
   const [tagInput, setTagInput] = useState('');
@@ -53,6 +56,9 @@ export function ProductFormModal({ product, variants, onClose, onSaved }: Produc
       stock_qty: variant.stock_qty, image_url: variant.image_url ?? '', adjustment: '0',
     })));
     setTags(normalizeTags(product?.style_tags ?? []));
+    setBrand(product?.brand ?? '');
+    setBestSeller(product?.is_best_seller ?? false);
+    setCompareAtPrice(product?.compare_at_price == null ? '' : String(product.compare_at_price));
     const primary = product?.image_url ?? product?.image_urls[0] ?? '';
     setPrimaryImage(primary);
     setGalleryImages(uniqueUrls(product?.gallery_urls?.length ? product.gallery_urls : (product?.image_urls ?? []).filter((url) => url !== primary)).filter((url) => url !== primary));
@@ -144,6 +150,7 @@ export function ProductFormModal({ product, variants, onClose, onSaved }: Produc
     event.preventDefault();
     if (galleryUploading) return;
     if (drafts.length === 0) { toast.error(t('addVariantRequired')); return; }
+    if (compareAtPrice.trim() && (!Number.isFinite(Number(compareAtPrice)) || Number(compareAtPrice) < 0)) { toast.error(t('comparePriceInvalid')); return; }
     if (drafts.some((variant) => !variant.sku.trim() || !Number.isFinite(Number(variant.unit_sell_price)) || !Number.isFinite(Number(variant.unit_cost_price)) || Number(variant.unit_sell_price) < 0 || Number(variant.unit_cost_price) < 0 || !Number.isInteger(Number(variant.stock_qty)) || Number(variant.stock_qty) < 0 || (variant.id && (!Number.isInteger(Number(variant.adjustment)) || Number(variant.stock_qty) + Number(variant.adjustment) < 0)))) {
       toast.error(t('productValidation')); return;
     }
@@ -151,7 +158,7 @@ export function ProductFormModal({ product, variants, onClose, onSaved }: Produc
     let productId = product?.id;
     const finalPrimary = primaryImage.trim() || null;
     const finalGallery = uniqueUrls(galleryImages).filter((url) => url !== finalPrimary);
-    const productValues = { name: name.trim(), description: description.trim() || null, category, is_active: active, style_tags: normalizeTags(tags), image_url: finalPrimary, gallery_urls: finalGallery, image_urls: uniqueUrls([finalPrimary ?? '', ...finalGallery]) };
+    const productValues = { name: name.trim(), description: description.trim() || null, category, brand: brand.trim() || null, is_best_seller: bestSeller, compare_at_price: compareAtPrice.trim() ? Number(compareAtPrice) : null, is_active: active, style_tags: normalizeTags(tags), image_url: finalPrimary, gallery_urls: finalGallery, image_urls: uniqueUrls([finalPrimary ?? '', ...finalGallery]) };
     const productResult = productId
       ? await supabase.from('products').update(productValues).eq('id', productId).select('id').single()
       : await supabase.from('products').insert(productValues).select('id').single();
@@ -199,8 +206,11 @@ export function ProductFormModal({ product, variants, onClose, onSaved }: Produc
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="text-start text-sm font-semibold text-stone-700">{t('productName')}<input required value={name} onChange={(event) => setName(event.target.value)} className="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 text-start outline-none focus:border-rose-500" /></label>
           <label className="text-start text-sm font-semibold text-stone-700">{t('category')}<select value={category} onChange={(event) => setCategory(event.target.value as 'sneakers' | 'bags')} className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-start outline-none focus:border-rose-500"><option value="sneakers">{t('sneakers')}</option><option value="bags">{t('bags')}</option></select></label>
+          <label className="text-start text-sm font-semibold text-stone-700">{t('productBrand')}<input list="product-brand-presets" value={brand} onChange={(event) => setBrand(event.target.value)} placeholder={t('productBrandPlaceholder')} className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-start outline-none focus:border-rose-500" /><datalist id="product-brand-presets">{['Gucci', 'LV', 'Dior', 'Miu Miu', 'YSL'].map((preset) => <option key={preset} value={preset} />)}</datalist></label>
+          <label className="text-start text-sm font-semibold text-stone-700">{t('compareAtPrice')} ({t('currencyEgp')})<input type="number" min="0" step="0.01" value={compareAtPrice} onChange={(event) => setCompareAtPrice(event.target.value)} placeholder={t('compareAtPriceHint')} className="mt-2 w-full rounded-xl border border-stone-300 bg-white px-4 py-3 text-start outline-none focus:border-rose-500" /><span className="mt-1 block text-xs font-normal text-stone-500">{t('compareAtPriceHint')}</span></label>
           <label className="text-start text-sm font-semibold text-stone-700 sm:col-span-2">{t('description')}<textarea rows={2} value={description} onChange={(event) => setDescription(event.target.value)} className="mt-2 w-full rounded-xl border border-stone-300 px-4 py-3 text-start outline-none focus:border-rose-500" /></label>
           <label className="flex cursor-pointer items-center gap-3 text-start text-sm font-semibold text-stone-700"><input type="checkbox" checked={active} onChange={(event) => setActive(event.target.checked)} className="size-4 accent-rose-600" />{t('productActive')}</label>
+          <div className="flex items-center justify-between gap-3 text-start text-sm font-semibold text-stone-700"><span>{t('bestSellerToggle')}</span><button type="button" role="switch" aria-checked={bestSeller} onClick={() => setBestSeller((current) => !current)} className={`inline-flex h-7 w-12 shrink-0 items-center rounded-full p-1 transition-colors ${bestSeller ? 'bg-amber-600' : 'bg-stone-300'}`}><span className={`size-5 rounded-full bg-white shadow-sm transition-transform ${bestSeller ? dir === 'rtl' ? '-translate-x-5' : 'translate-x-5' : 'translate-x-0'}`} /></button></div>
         </div>
 
         <section className="space-y-4 rounded-2xl border border-stone-200 bg-stone-50/70 p-4 sm:p-5">

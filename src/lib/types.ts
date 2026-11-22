@@ -7,6 +7,7 @@ export type StockLogReason = 'sale' | 'cancellation' | 'return' | 'adjustment';
 
 export type Product = {
   id: string; name: string; description: string | null; category: string; brand: string | null;
+  is_best_seller: boolean; compare_at_price: number | null;
   image_url: string | null; image_urls: string[]; gallery_urls: string[]; style_tags: string[]; is_active: boolean; created_at: string; updated_at: string;
 }
 export type ProductVariant = {
@@ -37,7 +38,7 @@ export type StockLog = {
 export interface Database {
   public: {
     Tables: {
-      products: { Row: Product; Insert: { id?: string; name: string; description?: string | null; category: string; brand?: string | null; image_url?: string | null; image_urls?: string[]; gallery_urls?: string[]; style_tags?: string[]; is_active?: boolean; created_at?: string; updated_at?: string }; Update: Partial<Product>; Relationships: [] };
+      products: { Row: Product; Insert: { id?: string; name: string; description?: string | null; category: string; brand?: string | null; is_best_seller?: boolean; compare_at_price?: number | null; image_url?: string | null; image_urls?: string[]; gallery_urls?: string[]; style_tags?: string[]; is_active?: boolean; created_at?: string; updated_at?: string }; Update: Partial<Product>; Relationships: [] };
       product_variants: { Row: ProductVariant; Insert: { id?: string; product_id: string; sku: string; color?: string | null; size?: string | null; image_url?: string | null; unit_cost_price: number; unit_sell_price: number; stock_qty?: number; is_active?: boolean; created_at?: string; updated_at?: string }; Update: Partial<ProductVariant>; Relationships: [] };
       shipping_zones: { Row: ShippingZone; Insert: Omit<ShippingZone, 'id' | 'created_at' | 'cod_fee_egp'> & Partial<Pick<ShippingZone, 'id' | 'created_at' | 'cod_fee_egp'>>; Update: Partial<ShippingZone>; Relationships: [] };
       orders: { Row: Order; Insert: Omit<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method'> & Partial<Pick<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method'>>; Update: Partial<Order>; Relationships: [] };

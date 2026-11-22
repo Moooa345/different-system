@@ -13,7 +13,7 @@ import { type AlternativeVariant, type TaggedProduct } from '../../utils/getSimi
 
 type ProductPageData = Product & { variants: AlternativeVariant[] };
 const NO_COLOR = '__no_color__';
-const PRODUCT_COLUMNS = 'id, name, description, category, brand, image_url, image_urls, gallery_urls, style_tags, is_active, created_at, updated_at';
+const PRODUCT_COLUMNS = 'id, name, description, category, brand, is_best_seller, compare_at_price, image_url, image_urls, gallery_urls, style_tags, is_active, created_at, updated_at';
 const VARIANT_COLUMNS = 'id, product_id, sku, color, size, image_url, unit_sell_price, stock_qty, is_active';
 
 export function ProductDetailsPage() {
