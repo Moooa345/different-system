@@ -25,10 +25,22 @@ export function ExpensesPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false });
-    if (error) toast.error(t('expensesLoadError'));
-    setExpenses((data ?? []) as Expense[]);
-    setLoading(false);
+    try {
+      const { data, error } = await supabase.from('expenses').select('*').order('expense_date', { ascending: false }).order('created_at', { ascending: false });
+      if (error) {
+        console.error('[ExpensesPage] Expense query failed:', error);
+        toast.error(t('expensesLoadError'));
+        setExpenses([]);
+        return;
+      }
+      setExpenses((data ?? []) as Expense[]);
+    } catch (error) {
+      console.error('[ExpensesPage] Unexpected load failure:', error);
+      toast.error(t('expensesLoadError'));
+      setExpenses([]);
+    } finally {
+      setLoading(false);
+    }
   }, [t]);
   useEffect(() => { void load(); }, [load]);
 
@@ -43,17 +55,28 @@ export function ExpensesPage() {
     const payload = { category_group: group, sub_category: String(form.get('sub_category')) as SubCategory, title: String(form.get('title')).trim(), amount: Number(form.get('amount')), expense_date: String(form.get('expense_date')), notes: String(form.get('notes') ?? '').trim() || null };
     if (!payload.title || !Number.isFinite(payload.amount) || payload.amount <= 0) return;
     setBusy(true);
-    const result = editing ? await supabase.from('expenses').update(payload).eq('id', editing.id) : await supabase.from('expenses').insert(payload);
-    setBusy(false);
-    if (result.error) { toast.error(t('expenseSaveError')); return; }
-    toast.success(editing ? t('expenseUpdated') : t('expenseAdded'));
-    setFormOpen(false); setEditing(null); await load();
+    try {
+      const result = editing ? await supabase.from('expenses').update(payload).eq('id', editing.id) : await supabase.from('expenses').insert(payload);
+      if (result.error) { console.error('[ExpensesPage] Save failed:', result.error); toast.error(t('expenseSaveError')); return; }
+      toast.success(editing ? t('expenseUpdated') : t('expenseAdded'));
+      setFormOpen(false); setEditing(null); await load();
+    } catch (error) {
+      console.error('[ExpensesPage] Unexpected save failure:', error);
+      toast.error(t('expenseSaveError'));
+    } finally {
+      setBusy(false);
+    }
   }
   async function remove(expense: Expense) {
     if (!window.confirm(t('expenseDeleteConfirm'))) return;
-    const { error } = await supabase.from('expenses').delete().eq('id', expense.id);
-    if (error) { toast.error(t('expenseSaveError')); return; }
-    toast.success(t('expenseDeleted')); await load();
+    try {
+      const { error } = await supabase.from('expenses').delete().eq('id', expense.id);
+      if (error) { console.error('[ExpensesPage] Delete failed:', error); toast.error(t('expenseSaveError')); return; }
+      toast.success(t('expenseDeleted')); await load();
+    } catch (error) {
+      console.error('[ExpensesPage] Unexpected delete failure:', error);
+      toast.error(t('expenseSaveError'));
+    }
   }
 
   const categoryOptions = group === 'operational' ? operational : petty;

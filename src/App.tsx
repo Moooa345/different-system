@@ -7,6 +7,7 @@ import { StorefrontPage } from './features/storefront/StorefrontPage';
 import { CheckoutPage } from './features/storefront/CheckoutPage';
 import { useTheme } from './store/useTheme';
 import { useStaffStore } from './store/staffStore';
+import { AppErrorBoundary } from './components/layout/AppErrorBoundary';
 
 const LoginPage = lazy(() => import('./features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ProtectedRoute = lazy(() => import('./features/auth/ProtectedRoute').then((module) => ({ default: module.ProtectedRoute })));
@@ -43,7 +44,7 @@ export default function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#0E0E0D' : '#FAF8F5');
   }, [theme]);
 
-  return <BrowserRouter>
+  return <AppErrorBoundary lang={lang}><BrowserRouter>
     <Toaster position="top-center" dir={dir} theme={theme} richColors />
     <Suspense fallback={<RouteLoading />}><Routes>
       <Route path="/login" element={<LoginPage />} />
@@ -62,5 +63,5 @@ export default function App() {
       <Route path="/checkout" element={<CheckoutPage />} />
       <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
     </Routes></Suspense>
-  </BrowserRouter>;
+  </BrowserRouter></AppErrorBoundary>;
 }

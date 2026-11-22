@@ -1,3 +1,4 @@
+import { useCallback } from 'react';
 import { useLanguageStore, type Language } from '../store/useLanguage';
 import { ar, en, type TranslationKey } from './translations';
 
@@ -6,8 +7,8 @@ export function useTranslation() {
   const setLanguage = useLanguageStore((state) => state.setLanguage);
   const toggleLanguage = useLanguageStore((state) => state.toggleLanguage);
   const dictionary = lang === 'ar' ? ar : en;
-  const t = (key: TranslationKey): string => dictionary[key];
+  const t = useCallback((key: TranslationKey): string => dictionary[key], [dictionary]);
   const dir: 'rtl' | 'ltr' = lang === 'ar' ? 'rtl' : 'ltr';
-  const formatCurrency = (amount: number) => `${new Intl.NumberFormat(lang === 'ar' ? 'ar-EG' : 'en-EG', { maximumFractionDigits: 2 }).format(amount)} ${t('currencyEgp')}`;
+  const formatCurrency = useCallback((amount: number) => `${new Intl.NumberFormat(lang === 'ar' ? 'ar-EG' : 'en-EG', { maximumFractionDigits: 2 }).format(amount)} ${t('currencyEgp')}`, [lang, t]);
   return { t, lang, dir, toggleLanguage, setLanguage: (next: Language) => setLanguage(next), formatCurrency };
 }

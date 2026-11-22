@@ -32,27 +32,35 @@ export function ReturnsPage() {
   const refresh = useCallback(async () => {
     setLoading(true);
     if (!userId) { setLoading(false); return; }
-    const shiftQuery = await supabase.from('shifts').select('id').eq('cashier_id', userId).eq('status', 'open').maybeSingle();
-    setActiveShiftId(shiftQuery.data?.id ?? null);
-    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
-      supabase.from('products').select('*').eq('is_active', true).order('name'),
-      supabase.from('product_variants').select('id,product_id,sku,color,size,image_url,unit_sell_price,stock_qty,is_active,created_at,updated_at').eq('is_active', true).order('sku'),
-    ]);
-    if (productError || variantError) { toast.error(t('returnLoadError')); setLoading(false); return; }
-    const grouped = new Map<string, ProductVariant[]>();
-    for (const row of variantRows ?? []) {
-      const v = { ...row, unit_cost_price: 0 } as ProductVariant;
-      grouped.set(v.product_id, [...(grouped.get(v.product_id) ?? []), v]);
+    try {
+      const shiftQuery = await supabase.from('shifts').select('id').eq('cashier_id', userId).eq('status', 'open').maybeSingle();
+      setActiveShiftId(shiftQuery.data?.id ?? null);
+      const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
+        supabase.from('products').select('*').eq('is_active', true).order('name'),
+        supabase.from('product_variants').select('id,product_id,sku,color,size,image_url,unit_sell_price,stock_qty,is_active,created_at,updated_at').eq('is_active', true).order('sku'),
+      ]);
+      if (productError || variantError) { console.error('[ReturnsPage] Catalog query failed:', productError ?? variantError); toast.error(t('returnLoadError')); return; }
+      const grouped = new Map<string, ProductVariant[]>();
+      for (const row of variantRows ?? []) {
+        const v = { ...row, unit_cost_price: 0 } as ProductVariant;
+        grouped.set(v.product_id, [...(grouped.get(v.product_id) ?? []), v]);
+      }
+      setProducts((productRows ?? []).map((p) => ({ ...p, variants: grouped.get(p.id) ?? [] })));
+      const { data: returnRows, error: returnError } = role === 'cashier' && shiftQuery.data?.id
+        ? await supabase.from('product_returns').select('*').eq('shift_id', shiftQuery.data.id).order('created_at', { ascending: false }).limit(50)
+        : role === 'cashier'
+          ? { data: [], error: null }
+          : await supabase.from('product_returns').select('*').order('created_at', { ascending: false }).limit(100);
+      if (returnError) console.error('[ReturnsPage] Return history query failed:', returnError);
+      if (returnError) toast.error(t('returnLoadError'));
+      setReturns((returnRows ?? []) as ReturnRow[]);
+    } catch (error) {
+      console.error('[ReturnsPage] Unexpected load failure:', error);
+      toast.error(t('returnLoadError'));
+      setReturns([]);
+    } finally {
+      setLoading(false);
     }
-    setProducts((productRows ?? []).map((p) => ({ ...p, variants: grouped.get(p.id) ?? [] })));
-    const { data: returnRows, error: returnError } = role === 'cashier' && shiftQuery.data?.id
-      ? await supabase.from('product_returns').select('*').eq('shift_id', shiftQuery.data.id).order('created_at', { ascending: false }).limit(50)
-      : role === 'cashier'
-        ? { data: [], error: null }
-        : await supabase.from('product_returns').select('*').order('created_at', { ascending: false }).limit(100);
-    if (returnError) toast.error(t('returnLoadError'));
-    setReturns((returnRows ?? []) as ReturnRow[]);
-    setLoading(false);
   }, [role, t, userId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -88,19 +96,29 @@ export function ReturnsPage() {
     if (role === 'cashier' && !activeShiftId) { toast.error(t('shiftRequired')); return; }
     if (orderId.trim() && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(orderId.trim())) { toast.error(t('returnOrderIdInvalid')); return; }
     setSaving(true);
-    const { error } = await supabase.rpc('process_product_return', {
-      p_variant_id: selected.variant.id,
-      p_quantity: quantity,
-      p_refund_amount: Number(refundAmount),
-      p_refund_method: refundMethod,
-      p_order_id: orderId.trim() || null,
-      p_reason: reason.trim() || null,
-    });
-    setSaving(false);
-    if (error) { toast.error(error.message.includes('open cashier shift') ? t('shiftRequired') : t('returnSaveError')); return; }
-    toast.success(t('returnSuccess'));
-    setSelected(null); setOrderId(''); setReason(''); setQuantity(1); setRefundAmount('');
-    await refresh();
+    try {
+      const { error } = await supabase.rpc('process_product_return', {
+        p_variant_id: selected.variant.id,
+        p_quantity: quantity,
+        p_refund_amount: Number(refundAmount),
+        p_refund_method: refundMethod,
+        p_order_id: orderId.trim() || null,
+        p_reason: reason.trim() || null,
+      });
+      if (error) {
+        console.error('[ReturnsPage] Return RPC failed:', error);
+        toast.error(error.message.toLowerCase().includes('open cashier shift') ? t('shiftRequired') : t('returnSaveError'));
+        return;
+      }
+      toast.success(t('returnSuccess'));
+      setSelected(null); setOrderId(''); setReason(''); setQuantity(1); setRefundAmount('');
+      await refresh();
+    } catch (error) {
+      console.error('[ReturnsPage] Unexpected return failure:', error);
+      toast.error(t('returnSaveError'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return <div dir={dir} className="space-y-6 tabular-nums">
@@ -112,7 +130,7 @@ export function ReturnsPage() {
           <div className="flex gap-2"><label className="relative flex-1"><Barcode className={`absolute top-3.5 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input value={barcode} onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); scanSku(); } }} placeholder={t('returnScan')} dir="ltr" className="h-11 w-full rounded-md border border-stone-300 px-10 text-start text-sm" /></label><button type="button" onClick={scanSku} className="h-11 rounded-md border border-stone-300 px-3 text-sm font-semibold">{t('returnFind')}</button></div>
         </div>
         {loading ? <div className="grid min-h-44 place-items-center text-stone-500"><LoaderCircle className="size-5 animate-spin" /></div> : <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{filteredProducts.map((product) => {
-          const image = product.image_url ?? product.gallery_urls[0] ?? product.image_urls[0];
+          const image = product.image_url ?? product.gallery_urls?.[0] ?? product.image_urls?.[0];
           return <article key={product.id} className="overflow-hidden rounded-md border border-stone-200">
             {image ? <img src={image} alt={product.name} className="aspect-[4/5] w-full object-cover" /> : <div className="grid aspect-[4/5] place-items-center bg-stone-100 text-stone-400"><ImagePlus /></div>}
             <div className="p-3"><h2 className="truncate text-sm font-bold text-stone-900">{product.name}</h2><div className="mt-2 space-y-2">{product.variants.map((variant) => <button key={variant.id} type="button" onClick={() => choose(product, variant)} className={`flex min-h-11 w-full items-center justify-between gap-2 rounded-md border px-2 text-start text-xs ${selected?.variant.id === variant.id ? 'border-[#B89650] bg-amber-50 text-stone-900' : 'border-stone-200 hover:bg-stone-50'}`}><span className="min-w-0 truncate">{variant.color || t('oneColor')} · {variant.size || t('pdpNoSize')} · {variant.sku}</span><span className="shrink-0 tabular-nums">{formatCurrency(Number(variant.unit_sell_price))}</span></button>)}</div></div>
