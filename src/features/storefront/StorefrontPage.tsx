@@ -137,10 +137,6 @@ export function StorefrontPage() {
     return [...options.values()];
   }, [products]);
 
-  const offerProducts = visibleProducts.filter((product) => {
-    const sellPrice = Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity);
-    return Number.isFinite(sellPrice) && product.compare_at_price != null && product.compare_at_price > sellPrice;
-  });
   const monthlySales = useMemo(() => Object.fromEntries(Object.entries(salesByProduct).map(([id, stats]) => [id, stats.sold_last_30_days])), [salesByProduct]);
   const autoBestSellerIds = useMemo(() => getAutoBestSellerIds(products, monthlySales), [products, monthlySales]);
   const bestSellerProducts = visibleProducts
@@ -148,6 +144,11 @@ export function StorefrontPage() {
     .sort((a, b) => Number(b.is_best_seller) - Number(a.is_best_seller)
       || (monthlySales[b.id] ?? 0) - (monthlySales[a.id] ?? 0)
       || a.name.localeCompare(b.name));
+  const bestSellerIds = new Set(bestSellerProducts.map((product) => product.id));
+  const offerProducts = visibleProducts.filter((product) => {
+    const sellPrice = Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity);
+    return !bestSellerIds.has(product.id) && Number.isFinite(sellPrice) && product.compare_at_price != null && product.compare_at_price > sellPrice;
+  });
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const renderProductCard = (product: StoreProduct) => {
@@ -203,7 +204,7 @@ export function StorefrontPage() {
         </div>
       </section>
 
-      {!loading && bestSellerProducts.length > 0 && <section aria-labelledby="store-best-sellers-title" className="mb-10">
+      {!loading && bestSellerProducts.length > 0 && <section aria-labelledby="store-best-sellers-title" className="mb-8 border-b border-stone-200 pb-8 dark:border-stone-700">
         <div className="mb-4"><p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#8A6D35] dark:text-[#C8A86B]">Different Store</p><h2 id="store-best-sellers-title" className="mt-1 text-xl font-bold text-stone-900 dark:text-stone-100">{t('bestSellers')}</h2></div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{bestSellerProducts.map(renderProductCard)}</div>
       </section>}
