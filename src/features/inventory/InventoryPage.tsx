@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Boxes, ImagePlus, LoaderCircle, PackagePlus, Pencil, Search } from 'lucide-react';
+import { BadgePercent, Boxes, ImagePlus, LoaderCircle, PackagePlus, Pencil, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import type { Product, ProductVariant } from '../../lib/types';
 import { supabase } from '../../lib/supabase';
 import { ProductFormModal } from './ProductFormModal';
 import { useTranslation } from '../../i18n/useTranslation';
+import { BulkOffersModal } from './BulkOffersModal';
 
 type ProductWithVariants = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
@@ -21,6 +22,7 @@ export function InventoryPage() {
   const [health, setHealth] = useState<HealthFilter>((searchParams.get('health') as HealthFilter) || 'all');
   const [editing, setEditing] = useState<ProductWithVariants | null>(null);
   const [creating, setCreating] = useState(false);
+  const [bulkOffersOpen, setBulkOffersOpen] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savingStockId, setSavingStockId] = useState<string | null>(null);
 
@@ -92,7 +94,7 @@ export function InventoryPage() {
   return <div dir={dir} className="space-y-6 tabular-nums">
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div><div className="flex items-center gap-3"><div className="grid size-12 place-items-center rounded-2xl bg-rose-100 text-rose-700"><Boxes className="size-6" /></div><div><h1 className="text-2xl font-black text-stone-900">{t('inventory')}</h1><p className="mt-1 text-sm text-stone-500">{t('inventorySubtitle')}</p></div></div></div>
-      <button onClick={() => setCreating(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-stone-800"><PackagePlus className="size-4" />{t('addProduct')}</button>
+      <div className="flex flex-wrap gap-2"><button onClick={() => setBulkOffersOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950 shadow-sm hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><BadgePercent className="size-4" />{t('bulkOffers')}</button><button onClick={() => setCreating(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-stone-800"><PackagePlus className="size-4" />{t('addProduct')}</button></div>
     </div>
 
     <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
@@ -128,5 +130,6 @@ export function InventoryPage() {
       </div>}
     <p className="text-center text-xs text-stone-400">{t('productCount')}: {new Intl.NumberFormat(lang).format(filtered.length)} {t('of')} {new Intl.NumberFormat(lang).format(products.length)}</p>
     {(creating || editing) && <ProductFormModal product={editing} variants={editing?.variants ?? []} onClose={() => { setCreating(false); setEditing(null); }} onSaved={loadProducts} />}
+    {bulkOffersOpen && <BulkOffersModal products={products} onClose={() => setBulkOffersOpen(false)} onApplied={loadProducts} />}
   </div>;
 }

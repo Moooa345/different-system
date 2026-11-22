@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, CreditCard, RefreshCw, Search, ShoppingBag, Truck } from 'lucide-react';
+import { ArrowDown, CreditCard, RefreshCw, Search, ShoppingBag, Sparkles, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import type { Product, ProductVariant } from '../../lib/types';
@@ -147,10 +147,11 @@ export function StorefrontPage() {
     const hoverImage = product.gallery_urls.length >= 2 ? product.gallery_urls[1] : null;
     const previewColors = [...new Set(product.variants.map((variant) => variant.color?.trim() || t('oneColor')))].slice(0, 3);
     const totalStock = product.variants.reduce((sum, variant) => sum + (variant.is_active ? variant.stock_qty : 0), 0);
-    return <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+    return <article key={product.id} className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition duration-300 hover:-translate-y-1 dark:bg-stone-900 ${product.is_best_seller ? 'border-[#C8A86A]/45 hover:border-[#C8A86A] hover:shadow-[0_12px_38px_rgba(200,169,106,0.22)] dark:border-[#C8A86A]/45 dark:hover:border-[#C8A86A] dark:hover:shadow-[0_12px_38px_rgba(200,169,106,0.18)]' : 'border-stone-200 hover:shadow-lg dark:border-stone-700'} `}>
       <Link to={`/product/${product.id}`} aria-label={`${t('viewProductDetails')}: ${product.name}`} className="group relative block aspect-[4/5] overflow-hidden bg-stone-100">
         {image ? <><img src={image} alt={product.name} loading="lazy" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-105" />{hoverImage && <img src={hoverImage} alt="" aria-hidden="true" loading="lazy" className="absolute inset-0 size-full object-cover opacity-0 transition-opacity duration-500 group-hover:opacity-100" />}</> : <div className="grid size-full place-items-center text-stone-300"><ShoppingBag className="size-12" /></div>}
         <span className="absolute start-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-stone-600 backdrop-blur">{product.category === 'bags' ? t('posBags') : t('posShoes')}</span>
+        {product.is_best_seller && <span className="absolute start-3 top-12 inline-flex items-center gap-1.5 rounded-md border border-[#C8A86A] bg-[#141414] px-2.5 py-1.5 text-[11px] font-bold text-[#D4AF37] shadow-sm"><Sparkles className="size-3.5" aria-hidden="true" />{t('bestSellerBadge')}</span>}
         {isOffer && <span className="absolute end-3 top-3 rounded-md bg-amber-100 px-2.5 py-1 text-[11px] font-bold text-amber-950 shadow-sm">{t('discountPercent').replace('{percent}', new Intl.NumberFormat(lang).format(discountPercent))}</span>}
         <span className={`absolute end-3 bottom-3 rounded-md px-2.5 py-1 text-[11px] font-bold backdrop-blur ${totalStock === 0 ? 'bg-stone-900 text-white' : totalStock <= 3 ? 'bg-amber-50/95 text-amber-800' : 'hidden'}`}>{totalStock === 0 ? t('storeSoldOut') : t('storeLowStock')}</span>
       </Link>
