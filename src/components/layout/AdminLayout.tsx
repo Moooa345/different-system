@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { BarChart3, Boxes, ClipboardList, ExternalLink, LogOut, Menu, ShoppingBasket } from 'lucide-react';
+import { BarChart3, Boxes, ClipboardList, Clock3, ExternalLink, LogOut, Menu, ShoppingBasket } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '../../store/authStore';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -8,17 +8,20 @@ import type { TranslationKey } from '../../i18n/translations';
 import { LanguageSwitcher } from './LanguageSwitcher';
 import { ThemeToggle } from './ThemeToggle';
 import { BrandLogo } from './BrandLogo';
+import { useStaffStore } from '../../store/staffStore';
 
 const links: { to: string; key: TranslationKey; icon: typeof BarChart3 }[] = [
   { to: '/admin/dashboard', key: 'dashboard', icon: BarChart3 },
   { to: '/admin/pos', key: 'pos', icon: ShoppingBasket },
   { to: '/admin/inventory', key: 'inventory', icon: Boxes },
   { to: '/admin/orders', key: 'orders', icon: ClipboardList },
+  { to: '/admin/shifts', key: 'shifts', icon: Clock3 },
 ];
 
 export function AdminLayout() {
   const navigate = useNavigate();
   const user = useAuthStore((state) => state.user);
+  const role = useStaffStore((state) => state.role);
   const signOut = useAuthStore((state) => state.signOut);
   const { t, dir, lang } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -48,7 +51,7 @@ export function AdminLayout() {
         {collapsed && !sidebarOpen && <a href="/admin/dashboard" aria-label={t('brand')}><BrandLogo size="sm" showWordmark={false} /></a>}
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-3">
-        {links.map(({ to, key, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setSidebarOpen(false)} title={collapsed ? t(key) : undefined} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-3 text-start text-sm font-semibold transition ${collapsed ? 'lg:justify-center' : ''} ${isActive ? 'bg-rose-50 text-rose-700' : 'text-stone-600 hover:bg-stone-100'}`}><Icon className="size-5 shrink-0" />{(!collapsed || sidebarOpen) && <span className="truncate">{t(key)}</span>}</NavLink>)}
+        {links.filter((link) => role === 'owner' || link.to === '/admin/pos').map(({ to, key, icon: Icon }) => <NavLink key={to} to={to} onClick={() => setSidebarOpen(false)} title={collapsed ? t(key) : undefined} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-3 text-start text-sm font-semibold transition ${collapsed ? 'lg:justify-center' : ''} ${isActive ? 'bg-rose-50 text-rose-700' : 'text-stone-600 hover:bg-stone-100'}`}><Icon className="size-5 shrink-0" />{(!collapsed || sidebarOpen) && <span className="truncate">{t(key)}</span>}</NavLink>)}
         <a href="/" title={collapsed ? t('storefront') : undefined} className={`mt-4 flex items-center gap-3 rounded-xl px-3 py-3 text-start text-sm font-semibold text-stone-600 transition hover:bg-stone-100 ${collapsed ? 'lg:justify-center' : ''}`}><ExternalLink className="size-5 shrink-0" />{(!collapsed || sidebarOpen) && <span>{t('storefront')}</span>}</a>
       </nav>
       <div className="shrink-0 space-y-2 border-t border-stone-200 p-3">

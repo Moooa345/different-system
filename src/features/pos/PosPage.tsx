@@ -10,6 +10,9 @@ import type { AlternativeVariant, TaggedProduct } from '../../utils/getSimilarAl
 import { formatVariantLabel } from '../../utils/formatVariantLabel';
 import { useHeldPosCarts, type HeldPosCart } from '../../store/useHeldPosCarts';
 import { normalizeEgyptianPhone } from '../../utils/normalizeEgyptianPhone';
+import { ShiftControls } from './ShiftControls';
+import { useStaffStore } from '../../store/staffStore';
+import { useAuthStore } from '../../store/authStore';
 
 type CatalogProduct = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
@@ -29,6 +32,9 @@ interface PosReceipt {
 
 export function PosPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
+  const staffRole = useStaffStore((state) => state.role);
+  const userId = useAuthStore((state) => state.user?.id ?? null);
+  const [shiftOpen, setShiftOpen] = useState(false);
   const items = usePosCart((state) => state.items);
   const addItem = usePosCart((state) => state.addItem);
   const updateQty = usePosCart((state) => state.updateQty);
@@ -37,7 +43,8 @@ export function PosPage() {
   const clearCart = usePosCart((state) => state.clearCart);
   const restoreItems = usePosCart((state) => state.restoreItems);
   const subtotal = usePosCart((state) => state.subtotal());
-  const heldCarts = useHeldPosCarts((state) => state.carts);
+  const allHeldCarts = useHeldPosCarts((state) => state.carts);
+  const heldCarts = useMemo(() => allHeldCarts.filter((cart) => cart.cashierId === userId), [allHeldCarts, userId]);
   const holdCart = useHeldPosCarts((state) => state.holdCart);
   const removeHeldCart = useHeldPosCarts((state) => state.removeHeldCart);
   const [products, setProducts] = useState<CatalogProduct[]>([]);
@@ -62,7 +69,7 @@ export function PosPage() {
   const loadCatalog = useCallback(async (showError = true) => {
     const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }] = await Promise.all([
       supabase.from('products').select('*').eq('is_active', true).order('created_at', { ascending: false }),
-      supabase.from('product_variants').select('*').eq('is_active', true).order('created_at'),
+      supabase.from('product_variants').select('id,product_id,sku,color,size,image_url,unit_sell_price,stock_qty,is_active,created_at,updated_at').eq('is_active', true).order('created_at'),
     ]);
     if (productError || variantError) {
       if (showError) toast.error(loadErrorMessage);
@@ -70,10 +77,13 @@ export function PosPage() {
       return;
     }
     const grouped = new Map<string, ProductVariant[]>();
-    for (const variant of variantRows ?? []) grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
+    for (const row of variantRows ?? []) {
+      const variant = { ...row, unit_cost_price: 0 } as ProductVariant;
+      grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
+    }
     const activeProducts = productRows ?? [];
     const activeProductIds = new Set(activeProducts.map((product) => product.id));
-    const activeVariants = (variantRows ?? []).filter((variant) => activeProductIds.has(variant.product_id));
+    const activeVariants = [...grouped.values()].flat().filter((variant) => activeProductIds.has(variant.product_id));
     syncStock(Object.fromEntries(activeVariants.map((variant) => [variant.id, variant.stock_qty])));
     setProducts(activeProducts.map((product) => ({ ...product, variants: grouped.get(product.id) ?? [] })));
     setLoading(false);
@@ -87,6 +97,26 @@ export function PosPage() {
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [loadCatalog]);
+
+  useEffect(() => {
+    clearCart();
+    setCustomerName('');
+    setCustomerPhone('');
+    setCashTendered('');
+    setCheckoutOpen(false);
+  }, [userId, clearCart]);
+
+  const refreshShift = useCallback(async () => {
+    if (!userId) { setShiftOpen(false); return; }
+    const { data } = await supabase.from('shifts').select('id').eq('cashier_id', userId).eq('status', 'open').maybeSingle();
+    setShiftOpen(Boolean(data));
+  }, [userId]);
+  useEffect(() => {
+    void refreshShift();
+    window.addEventListener('different-store-shift-updated', refreshShift);
+    return () => window.removeEventListener('different-store-shift-updated', refreshShift);
+  }, [refreshShift]);
+  const canSell = staffRole !== 'cashier' || shiftOpen;
 
   const visibleProducts = useMemo(() => {
     const value = search.trim().toLocaleLowerCase(lang);
@@ -112,7 +142,8 @@ export function PosPage() {
 
   function parkCurrentCart() {
     if (items.length === 0) return;
-    holdCart({ items: items.map((item) => ({ ...item })), customerName, customerPhone, paymentMethod, itemCount: items.reduce((count, item) => count + item.qty, 0), total: subtotal });
+    if (!userId) return;
+    holdCart({ cashierId: userId, items: items.map((item) => ({ ...item })), customerName, customerPhone, paymentMethod, itemCount: items.reduce((count, item) => count + item.qty, 0), total: subtotal });
     clearCart();
     setCustomerName('');
     setCustomerPhone('');
@@ -145,6 +176,7 @@ export function PosPage() {
     searchRef.current?.focus();
   }
   const addAlternative = (product: TaggedProduct, variant: AlternativeVariant) => {
+    if (!canSell) { toast.error(t('shiftRequired')); return; }
     const image = variant.image_url ?? product.image_url ?? product.gallery_urls[0] ?? product.image_urls[0] ?? null;
     addItem({ variantId: variant.id, productName: product.name, sku: variant.sku, color: variant.color, size: variant.size, unitPrice: variant.unit_sell_price, maxStock: variant.stock_qty, qty: 1, imageUrl: image });
     setAlternativesRequest(null);
@@ -152,7 +184,7 @@ export function PosPage() {
   };
 
   async function completeSale() {
-    if (items.length === 0 || submitting || saleSubmittingRef.current || (paymentMethod === 'cash' && effectiveTendered < subtotal)) return;
+    if (items.length === 0 || !canSell || submitting || saleSubmittingRef.current || (paymentMethod === 'cash' && effectiveTendered < subtotal)) return;
     saleSubmittingRef.current = true;
     setSubmitting(true);
     const receiptItems = items.map((item) => ({ ...item }));
@@ -176,7 +208,7 @@ export function PosPage() {
         return;
       }
 
-      const { data: order } = await supabase.from('orders').select('order_number, created_at').eq('id', orderId).single();
+      const { data: order } = await supabase.rpc('get_pos_receipt', { p_order_id: orderId });
       const orderNumber = typeof order?.order_number === 'number'
         ? new Intl.NumberFormat(lang).format(order.order_number)
         : order?.order_number ?? t('posOrderNumberUnavailable');
@@ -241,6 +273,7 @@ export function PosPage() {
 
   return <div dir={dir} className="grid min-w-0 gap-5 tabular-nums xl:grid-cols-[minmax(0,1fr)_25rem]">
     <section className="min-w-0 space-y-5">
+      <ShiftControls />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-2xl font-black text-stone-900">{t('posCatalogTitle')}</h1><p className="mt-1 text-sm text-stone-500">{t('posCatalogSubtitle')}</p></div>
         <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700"><span className="size-2 rounded-full bg-emerald-500" />{t('posSaleInProgress')}</span>
@@ -268,6 +301,7 @@ export function PosPage() {
                   const lowStock = !outOfStock && variant.stock_qty <= 3;
                   const inCart = items.find((item) => item.variantId === variant.id)?.qty ?? 0;
                   return <button key={variant.id} type="button" onClick={() => {
+                    if (!canSell) { toast.error(t('shiftRequired')); return; }
                     if (outOfStock) { setAlternativesRequest({ productId: product.id, variantId: variant.id }); return; }
                     addItem({ variantId: variant.id, productName: product.name, sku: variant.sku, color: variant.color, size: variant.size, unitPrice: variant.unit_sell_price, maxStock: variant.stock_qty, qty: 1, imageUrl: variant.image_url ?? image ?? null });
                     searchRef.current?.focus();
@@ -303,7 +337,7 @@ export function PosPage() {
         </div>
 
         <div className="space-y-2 border-t border-dashed border-stone-200 pt-3"><div className="flex justify-between text-sm text-stone-500"><span>{t('posSubtotal')}</span><span>{formatCurrency(subtotal)}</span></div><div className="flex items-center justify-between text-base font-black text-stone-900"><span>{t('posTotal')}</span><span>{formatCurrency(subtotal)}</span></div></div>
-        <button type="button" disabled={items.length === 0 || submitting} onClick={() => { setCashTendered(''); setCheckoutOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{t('posCompleteSale')}</button>
+        <button type="button" disabled={!canSell || items.length === 0 || submitting} onClick={() => { setCashTendered(''); setCheckoutOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300">{t('posCompleteSale')}</button>
         <div className="flex items-center justify-between gap-2"><button type="button" disabled={items.length === 0 || submitting} onClick={parkCurrentCart} className="min-h-11 flex-1 rounded-lg border border-stone-200 px-3 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:opacity-40">{t('posHoldCart')}</button><span className="hidden items-center rounded-md border border-stone-200 bg-white px-2 py-1 text-[10px] text-stone-400 lg:inline-flex">{t('posCheckoutHint')}</span></div>
       </div>
     </aside>

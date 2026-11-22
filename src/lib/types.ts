@@ -28,30 +28,43 @@ export type Order = {
   id: string; order_number: number; customer_name: string; customer_phone: string;
   shipping_address: string | null; shipping_zone_id: string | null; channel: OrderChannel;
   status: OrderStatus; subtotal_egp: number; shipping_fee_egp: number; total_egp: number;
-  cod_fee_egp: number; payment_method: PaymentMethod; return_loss_egp: number; notes: string | null; created_by: string | null;
+  cod_fee_egp: number; payment_method: PaymentMethod; return_loss_egp: number; notes: string | null; created_by: string | null; cashier_id: string | null; shift_id: string | null;
   created_at: string; updated_at: string;
 }
 export type OrderItem = {
-  id: string; order_id: string; variant_id: string; product_name: string; variant_sku: string;
+  id: string; order_id: string; variant_id: string | null; product_name: string; variant_sku: string;
   quantity: number; unit_cost_price: number; unit_sell_price: number; line_total_egp: number; created_at: string;
 }
 export type StockLog = {
-  id: string; variant_id: string; order_id: string | null; quantity_delta: number;
+  id: string; variant_id: string | null; order_id: string | null; quantity_delta: number;
   reason: StockLogReason; note: string | null; created_by: string | null; created_at: string;
 }
 
 export interface Database {
   public: {
     Tables: {
+      staff_accounts: { Row: { user_id: string; email: string | null; role: 'owner' | 'cashier'; display_name: string | null; is_active: boolean; created_at: string; updated_at: string }; Insert: { user_id: string; email?: string | null; role: 'owner' | 'cashier'; display_name?: string | null; is_active?: boolean }; Update: Partial<{ email: string | null; role: 'owner' | 'cashier'; display_name: string | null; is_active: boolean }> ; Relationships: [] };
+      shift_templates: { Row: { id: string; name_ar: string; name_en: string; start_time: string; end_time: string; grace_minutes: number; is_active: boolean; created_at: string }; Insert: { id?: string; name_ar: string; name_en: string; start_time: string; end_time: string; grace_minutes?: number; is_active?: boolean }; Update: Partial<{ name_ar: string; name_en: string; start_time: string; end_time: string; grace_minutes: number; is_active: boolean }>; Relationships: [] };
+      shifts: { Row: { id: string; cashier_id: string; cashier_name: string | null; template_id: string | null; scheduled_start_at: string; opened_at: string; closed_at: string | null; status: 'open' | 'closed'; punctuality_status: 'early' | 'on_time' | 'late'; punctuality_diff_minutes: number; opening_cash_egp: number; expected_cash_egp: number | null; actual_closing_cash_egp: number | null; cash_variance_egp: number | null; notes: string | null; created_at: string }; Insert: { id?: string; cashier_id: string; cashier_name?: string | null; template_id?: string | null; scheduled_start_at: string; opened_at?: string; closed_at?: string | null; status?: 'open' | 'closed'; punctuality_status: 'early' | 'on_time' | 'late'; punctuality_diff_minutes: number; opening_cash_egp?: number; expected_cash_egp?: number | null; actual_closing_cash_egp?: number | null; cash_variance_egp?: number | null; notes?: string | null }; Update: Partial<{ status: 'open' | 'closed'; closed_at: string | null; expected_cash_egp: number | null; actual_closing_cash_egp: number | null; cash_variance_egp: number | null; notes: string | null }>; Relationships: [] };
       products: { Row: Product; Insert: { id?: string; name: string; description?: string | null; category: string; brand?: string | null; is_best_seller?: boolean; compare_at_price?: number | null; image_url?: string | null; image_urls?: string[]; gallery_urls?: string[]; style_tags?: string[]; is_active?: boolean; created_at?: string; updated_at?: string }; Update: Partial<Product>; Relationships: [] };
       product_variants: { Row: ProductVariant; Insert: { id?: string; product_id: string; sku: string; color?: string | null; size?: string | null; image_url?: string | null; unit_cost_price: number; unit_sell_price: number; stock_qty?: number; is_active?: boolean; created_at?: string; updated_at?: string }; Update: Partial<ProductVariant>; Relationships: [] };
       shipping_zones: { Row: ShippingZone; Insert: Omit<ShippingZone, 'id' | 'created_at' | 'cod_fee_egp'> & Partial<Pick<ShippingZone, 'id' | 'created_at' | 'cod_fee_egp'>>; Update: Partial<ShippingZone>; Relationships: [] };
-      orders: { Row: Order; Insert: Omit<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method'> & Partial<Pick<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method'>>; Update: Partial<Order>; Relationships: [] };
+      orders: { Row: Order; Insert: Omit<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method' | 'cashier_id' | 'shift_id'> & Partial<Pick<Order, 'id' | 'order_number' | 'created_at' | 'updated_at' | 'return_loss_egp' | 'cod_fee_egp' | 'payment_method' | 'cashier_id' | 'shift_id'>>; Update: Partial<Order>; Relationships: [] };
       order_items: { Row: OrderItem; Insert: Omit<OrderItem, 'id' | 'created_at'> & Partial<Pick<OrderItem, 'id' | 'created_at'>>; Update: Partial<OrderItem>; Relationships: [] };
       stock_logs: { Row: StockLog; Insert: Omit<StockLog, 'id' | 'created_at'> & Partial<Pick<StockLog, 'id' | 'created_at'>>; Update: Partial<StockLog>; Relationships: [] };
     };
     Views: Record<string, never>;
     Functions: {
+      get_my_staff_role: { Args: Record<string, never>; Returns: string | null };
+      current_staff_role: { Args: Record<string, never>; Returns: string | null };
+      is_owner: { Args: Record<string, never>; Returns: boolean };
+      get_owner_variant_costs: { Args: Record<string, never>; Returns: { variant_id: string; unit_cost_price: number }[] };
+      assign_staff_role: { Args: { p_email: string; p_role: string; p_display_name?: string | null }; Returns: string };
+      open_cashier_shift: { Args: { p_template_id: string; p_opening_cash?: number }; Returns: Database['public']['Tables']['shifts']['Row'] };
+      close_cashier_shift: { Args: { p_shift_id: string; p_actual_closing_cash: number; p_notes?: string | null }; Returns: Database['public']['Tables']['shifts']['Row'] };
+      get_current_shift_summary: { Args: Record<string, never>; Returns: Json };
+      get_pos_receipt: { Args: { p_order_id: string }; Returns: { order_number: number; created_at: string } };
+      delete_product_permanently: { Args: { p_product_id: string }; Returns: undefined };
       create_order_atomic: { Args: { order_payload: Json; items_array: Json }; Returns: string };
       get_public_order_number: { Args: { p_order_id: string }; Returns: Json };
       update_order_status_atomic: { Args: { p_order_id: string; p_new_status: string }; Returns: undefined };

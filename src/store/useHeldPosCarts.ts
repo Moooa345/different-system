@@ -5,6 +5,7 @@ import type { PosCartItem } from './usePosCart';
 
 export interface HeldPosCart {
   id: string;
+  cashierId: string;
   createdAt: string;
   items: PosCartItem[];
   customerName: string;

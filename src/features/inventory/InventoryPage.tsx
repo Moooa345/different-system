@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BadgePercent, Boxes, ImagePlus, LoaderCircle, PackagePlus, Pencil, Search } from 'lucide-react';
+import { BadgePercent, Boxes, ImagePlus, LoaderCircle, PackagePlus, Pencil, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import type { Product, ProductVariant } from '../../lib/types';
@@ -29,9 +29,10 @@ export function InventoryPage() {
   const [savingStockId, setSavingStockId] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
-    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }, salesResult] = await Promise.all([
+    const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }, costsResult, salesResult] = await Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
-      supabase.from('product_variants').select('*').order('created_at'),
+      supabase.from('product_variants').select('id,product_id,sku,color,size,image_url,unit_sell_price,stock_qty,is_active,created_at,updated_at').order('created_at'),
+      supabase.rpc('get_owner_variant_costs'),
       supabase.rpc('get_storefront_product_sales_stats'),
     ]);
     if (productError || variantError) {
@@ -39,8 +40,12 @@ export function InventoryPage() {
       setLoading(false);
       return;
     }
+    const costs = new Map<string, number>((costsResult.data ?? []).map((row) => [row.variant_id, Number(row.unit_cost_price)]));
     const grouped = new Map<string, ProductVariant[]>();
-    for (const variant of variantRows ?? []) grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
+    for (const row of variantRows ?? []) {
+      const variant = { ...row, unit_cost_price: costs.get(row.id) ?? 0 } as ProductVariant;
+      grouped.set(variant.product_id, [...(grouped.get(variant.product_id) ?? []), variant]);
+    }
     const nextProducts = (productRows ?? []).map((product) => ({ ...product, variants: grouped.get(product.id) ?? [] }));
     setProducts(nextProducts);
     setSalesByProduct(Object.fromEntries((salesResult.error ? [] : salesResult.data ?? []).map((row) => [row.product_id, { sold_last_30_days: Number(row.sold_last_30_days), total_sold: Number(row.total_sold) }])));
@@ -83,6 +88,14 @@ export function InventoryPage() {
     if (error) { toast.error(t('updateError')); return; }
     setProducts((current) => current.map((item) => item.id === product.id ? { ...item, is_active: !item.is_active } : item));
     toast.success(product.is_active ? t('productDisabled') : t('productEnabled'));
+  }
+
+  async function deleteProduct(product: ProductWithVariants) {
+    if (!window.confirm(`${t('deleteProductPermanently')}?\n\n${t('deleteProductWarning')}`)) return;
+    const { error } = await supabase.rpc('delete_product_permanently', { p_product_id: product.id });
+    if (error) { toast.error(t('productSaveError')); return; }
+    toast.success(t('deleteProductPermanently'));
+    await loadProducts();
   }
 
   async function adjustStock(variant: ProductVariant, delta: 1 | -1) {
@@ -129,7 +142,7 @@ export function InventoryPage() {
           return <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition hover:shadow-md">
             <div className="flex gap-4 p-4 sm:p-5">
               <div className="grid aspect-[4/5] w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-stone-100 text-stone-400 sm:w-24">{image ? <img src={image} alt={product.name} className="size-full object-cover" /> : <ImagePlus className="size-7" />}</div>
-              <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</div><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button></div>
+                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</div><div className="flex items-center gap-1"><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button><button onClick={() => void deleteProduct(product)} className="rounded-lg p-2 text-red-700 hover:bg-red-50" title={t('deleteProductPermanently')} aria-label={`${t('deleteProductPermanently')}: ${product.name}`}><Trash2 className="size-4" /></button></div></div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span>{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span><span className={`rounded-full px-2.5 py-1 font-bold ${out ? 'bg-red-50 text-red-700' : low ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{t('stock')}: {new Intl.NumberFormat(lang).format(stock)} · {out ? t('opsOutOfStock') : low ? t('lowStock') : t('posStockInStock')}</span></div>
                 <div className="mt-4 space-y-2">{product.variants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></div></div>)}</div>
               </div>

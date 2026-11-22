@@ -6,6 +6,7 @@ import { useTranslation } from './i18n/useTranslation';
 import { StorefrontPage } from './features/storefront/StorefrontPage';
 import { CheckoutPage } from './features/storefront/CheckoutPage';
 import { useTheme } from './store/useTheme';
+import { useStaffStore } from './store/staffStore';
 
 const LoginPage = lazy(() => import('./features/auth/LoginPage').then((module) => ({ default: module.LoginPage })));
 const ProtectedRoute = lazy(() => import('./features/auth/ProtectedRoute').then((module) => ({ default: module.ProtectedRoute })));
@@ -15,6 +16,12 @@ const PosPage = lazy(() => import('./features/pos/PosPage').then((module) => ({ 
 const OrdersPage = lazy(() => import('./features/orders/OrdersPage').then((module) => ({ default: module.OrdersPage })));
 const DashboardPage = lazy(() => import('./features/dashboard/DashboardPage').then((module) => ({ default: module.DashboardPage })));
 const ProductDetailsPage = lazy(() => import('./features/storefront/ProductDetailsPage').then((module) => ({ default: module.ProductDetailsPage })));
+const ShiftManagementPage = lazy(() => import('./features/dashboard/ShiftManagementPage').then((module) => ({ default: module.ShiftManagementPage })));
+
+function AdminIndexRedirect() {
+  const role = useStaffStore((state) => state.role);
+  return <Navigate to={role === 'cashier' ? '/admin/pos' : '/admin/dashboard'} replace />;
+}
 
 function RouteLoading() {
   const { t, dir } = useTranslation();
@@ -39,11 +46,12 @@ export default function App() {
     <Suspense fallback={<RouteLoading />}><Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/admin" element={<ProtectedRoute><AdminLayout /></ProtectedRoute>}>
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route index element={<AdminIndexRedirect />} />
+        <Route path="dashboard" element={<ProtectedRoute ownerOnly><DashboardPage /></ProtectedRoute>} />
         <Route path="pos" element={<PosPage />} />
-        <Route path="inventory" element={<InventoryPage />} />
-        <Route path="orders" element={<OrdersPage />} />
+        <Route path="inventory" element={<ProtectedRoute ownerOnly><InventoryPage /></ProtectedRoute>} />
+        <Route path="orders" element={<ProtectedRoute ownerOnly><OrdersPage /></ProtectedRoute>} />
+        <Route path="shifts" element={<ProtectedRoute ownerOnly><ShiftManagementPage /></ProtectedRoute>} />
       </Route>
       <Route path="/" element={<StorefrontPage />} />
       <Route path="/product/:id" element={<ProductDetailsPage />} />
