@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { LoaderCircle, Save, UserPlus } from 'lucide-react';
+import { LoaderCircle, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { useTranslation } from '../../i18n/useTranslation';
@@ -11,6 +11,7 @@ type StaffAccount = { user_id: string; email: string | null; role: 'owner' | 'ca
 export function ShiftManagementPage() {
   const { t, lang, dir, formatCurrency } = useTranslation();
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [templateDraft, setTemplateDraft] = useState<Template | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [staff, setStaff] = useState<StaffAccount[]>([]);
   const [email, setEmail] = useState('');
@@ -29,9 +30,15 @@ export function ShiftManagementPage() {
   }, [t]);
   useEffect(() => { void load(); }, [load]);
 
-  async function saveTemplate(template: Template) {
-    const { error } = await supabase.from('shift_templates').update({ name_ar: template.name_ar, name_en: template.name_en, start_time: template.start_time, end_time: template.end_time, grace_minutes: template.grace_minutes, is_active: template.is_active }).eq('id', template.id);
-    if (error) toast.error(t('shiftTemplateError')); else toast.success(t('shiftTemplateSaved'));
+  async function saveTemplate() {
+    if (!templateDraft) return;
+    setBusy(true);
+    const { error } = await supabase.from('shift_templates').update({ name_ar: templateDraft.name_ar, name_en: templateDraft.name_en, start_time: templateDraft.start_time, end_time: templateDraft.end_time, grace_minutes: templateDraft.grace_minutes, is_active: templateDraft.is_active }).eq('id', templateDraft.id);
+    setBusy(false);
+    if (error) { toast.error(t('shiftTemplateError')); return; }
+    toast.success(t('shiftTemplateSaved'));
+    setTemplateDraft(null);
+    await load();
   }
   async function addTemplate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,7 +74,15 @@ export function ShiftManagementPage() {
   return <div dir={dir} className="space-y-6">
     <header><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#9A7A3D]">{t('staffRoleOwner')}</p><h1 className="mt-2 text-2xl font-bold text-stone-900">{t('shifts')}</h1><p className="mt-1 text-sm text-stone-500">{t('shiftAttendance')}</p></header>
     <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6"><h2 className="text-lg font-bold text-stone-900">{t('shiftTemplate')}</h2>
-      <div className="mt-4 space-y-3">{templates.map((template) => <div key={template.id} className="grid gap-3 rounded-md border border-stone-200 p-3 sm:grid-cols-[1fr_1fr_130px_130px_90px_auto]"><input aria-label={t('shiftTemplate')} value={lang === 'ar' ? template.name_ar : template.name_en} onChange={(event) => setTemplates((rows) => rows.map((row) => row.id === template.id ? lang === 'ar' ? { ...row, name_ar: event.target.value } : { ...row, name_en: event.target.value } : row))} className="h-10 rounded-md border border-stone-300 px-3 text-sm" /><span className="self-center text-xs text-stone-500">{template.name_ar} / {template.name_en}</span><input aria-label={t('shiftSchedule')} type="time" value={template.start_time.slice(0, 5)} onChange={(event) => setTemplates((rows) => rows.map((row) => row.id === template.id ? { ...row, start_time: event.target.value } : row))} className="h-10 rounded-md border border-stone-300 px-2 text-sm" /><input aria-label={t('shiftEnd')} type="time" value={template.end_time.slice(0, 5)} onChange={(event) => setTemplates((rows) => rows.map((row) => row.id === template.id ? { ...row, end_time: event.target.value } : row))} className="h-10 rounded-md border border-stone-300 px-2 text-sm" /><input aria-label={t('shiftSchedule')} type="number" min="0" value={template.grace_minutes} onChange={(event) => setTemplates((rows) => rows.map((row) => row.id === template.id ? { ...row, grace_minutes: Number(event.target.value) } : row))} className="h-10 rounded-md border border-stone-300 px-2 text-sm" /><div className="flex items-center justify-end gap-2"><label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={template.is_active} onChange={(event) => setTemplates((rows) => rows.map((row) => row.id === template.id ? { ...row, is_active: event.target.checked } : row))} />{t('active')}</label><button type="button" onClick={() => void saveTemplate(template)} aria-label={t('saveProduct')} className="grid size-10 place-items-center rounded-md border border-stone-200 text-stone-700"><Save className="size-4" /></button></div></div>)}</div>
+      <div className="mt-4 space-y-3">{templates.map((template) => templateDraft?.id === template.id ? <div key={template.id} className="grid gap-3 rounded-md border border-[#B89650]/50 bg-stone-50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="text-xs font-semibold text-stone-600">{t('shiftNameAr')}<input value={templateDraft.name_ar} onChange={(event) => setTemplateDraft({ ...templateDraft, name_ar: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-sm" /></label>
+        <label className="text-xs font-semibold text-stone-600">{t('shiftNameEn')}<input dir="ltr" value={templateDraft.name_en} onChange={(event) => setTemplateDraft({ ...templateDraft, name_en: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-3 text-start text-sm" /></label>
+        <label className="text-xs font-semibold text-stone-600">{t('shiftStartTime')}<input type="time" value={templateDraft.start_time.slice(0, 5)} onChange={(event) => setTemplateDraft({ ...templateDraft, start_time: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-2 text-sm" /></label>
+        <label className="text-xs font-semibold text-stone-600">{t('shiftEndTime')}<input type="time" value={templateDraft.end_time.slice(0, 5)} onChange={(event) => setTemplateDraft({ ...templateDraft, end_time: event.target.value })} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-2 text-sm" /></label>
+        <label className="text-xs font-semibold text-stone-600">{t('shiftGrace')}<input type="number" min="0" value={templateDraft.grace_minutes} onChange={(event) => setTemplateDraft({ ...templateDraft, grace_minutes: Number(event.target.value) })} className="mt-1 h-10 w-full rounded-md border border-stone-300 bg-white px-2 text-sm" /></label>
+        <label className="flex items-center gap-2 text-xs font-semibold text-stone-600"><input type="checkbox" checked={templateDraft.is_active} onChange={(event) => setTemplateDraft({ ...templateDraft, is_active: event.target.checked })} />{t('active')}</label>
+        <div className="flex items-end gap-2 lg:col-span-2"><button type="button" disabled={busy} onClick={() => void saveTemplate()} className="h-10 rounded-md bg-stone-900 px-4 text-sm font-bold text-white">{busy ? t('saving') : t('shiftTemplateSave')}</button><button type="button" onClick={() => setTemplateDraft(null)} className="h-10 rounded-md border border-stone-300 px-4 text-sm font-semibold text-stone-700">{t('shiftTemplateCancel')}</button></div>
+      </div> : <div key={template.id} className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-stone-200 p-4"><div><p className="font-bold text-stone-900">{lang === 'ar' ? template.name_ar : template.name_en} <span className="text-xs font-medium text-stone-500">· {template.start_time.slice(0, 5)}–{template.end_time.slice(0, 5)}</span></p><p className="mt-1 text-xs text-stone-500">{template.name_ar} / {template.name_en} · {t('shiftGrace')}: {new Intl.NumberFormat(lang).format(template.grace_minutes)} · {template.is_active ? t('active') : t('inactive')}</p></div><button type="button" onClick={() => setTemplateDraft({ ...template })} className="h-10 rounded-md border border-stone-300 px-4 text-sm font-semibold text-stone-700 hover:bg-stone-50">{t('shiftTemplateEdit')}</button></div>)}</div>
       <form onSubmit={(event) => void addTemplate(event)} className="mt-4 grid gap-3 rounded-md bg-stone-50 p-3 sm:grid-cols-2 lg:grid-cols-6"><input required name="name_ar" placeholder={t('shiftTemplate')} className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm" /><input required name="name_en" placeholder={t('shiftTemplate')} className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm" /><input required name="start_time" type="time" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><input required name="end_time" type="time" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><input name="grace_minutes" type="number" min="0" defaultValue="5" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><button disabled={busy} className="flex h-10 items-center justify-center gap-2 rounded-md bg-stone-900 px-3 text-sm font-bold text-white">{busy && <LoaderCircle className="size-4 animate-spin" />}{t('shiftAddTemplate')}</button></form>
     </section>
     <form onSubmit={(event) => void assignCashier(event)} className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6"><h2 className="text-lg font-bold text-stone-900">{t('staffManagement')}</h2><p className="mt-1 text-sm text-stone-500">{t('staffRoleCashier')} · {t('staffEmail')}</p><div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('staffEmail')} className="h-11 rounded-md border border-stone-300 px-3 text-sm" /><input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder={t('staffName')} className="h-11 rounded-md border border-stone-300 px-3 text-sm" /><button disabled={busy} className="flex h-11 items-center justify-center gap-2 rounded-md bg-stone-900 px-4 text-sm font-bold text-white"><UserPlus className="size-4" />{t('assignCashier')}</button></div></form>

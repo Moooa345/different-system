@@ -8,6 +8,7 @@ import { ProductFormModal } from './ProductFormModal';
 import { useTranslation } from '../../i18n/useTranslation';
 import { BulkOffersModal } from './BulkOffersModal';
 import { getAutoBestSellerIds } from '../../utils/getAutoBestSellerIds';
+import { useStaffStore } from '../../store/staffStore';
 
 type ProductWithVariants = Product & { variants: ProductVariant[] };
 type CategoryFilter = 'all' | 'sneakers' | 'bags';
@@ -15,12 +16,15 @@ type HealthFilter = 'all' | 'low' | 'out';
 
 export function InventoryPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
+  const role = useStaffStore((state) => state.role);
+  const isOwner = role === 'owner';
   const [searchParams] = useSearchParams();
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<Record<string, { sold_last_30_days: number; total_sold: number }>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('all');
+  const [brand, setBrand] = useState('all');
   const [health, setHealth] = useState<HealthFilter>((searchParams.get('health') as HealthFilter) || 'all');
   const [editing, setEditing] = useState<ProductWithVariants | null>(null);
   const [creating, setCreating] = useState(false);
@@ -32,8 +36,8 @@ export function InventoryPage() {
     const [{ data: productRows, error: productError }, { data: variantRows, error: variantError }, costsResult, salesResult] = await Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
       supabase.from('product_variants').select('id,product_id,sku,color,size,image_url,unit_sell_price,stock_qty,is_active,created_at,updated_at').order('created_at'),
-      supabase.rpc('get_owner_variant_costs'),
-      supabase.rpc('get_storefront_product_sales_stats'),
+      isOwner ? supabase.rpc('get_owner_variant_costs') : Promise.resolve({ data: null, error: null }),
+      isOwner ? supabase.rpc('get_storefront_product_sales_stats') : Promise.resolve({ data: [], error: null }),
     ]);
     if (productError || variantError) {
       toast.error(t('loadProductsError'));
@@ -51,7 +55,7 @@ export function InventoryPage() {
     setSalesByProduct(Object.fromEntries((salesResult.error ? [] : salesResult.data ?? []).map((row) => [row.product_id, { sold_last_30_days: Number(row.sold_last_30_days), total_sold: Number(row.total_sold) }])));
     if (salesResult.error && import.meta.env.DEV) console.warn('[inventory] Sales stats unavailable.', salesResult.error);
     setLoading(false);
-  }, []);
+  }, [isOwner, t]);
 
   useEffect(() => {
     void loadProducts();
@@ -66,11 +70,14 @@ export function InventoryPage() {
     const normalizedQuery = query.trim().toLocaleLowerCase(lang);
     return products.filter((product) => {
       const matchesCategory = category === 'all' || product.category === category;
+      const matchesBrand = brand === 'all' || product.brand === brand;
       const matchesQuery = !normalizedQuery || product.name.toLocaleLowerCase(lang).includes(normalizedQuery) || product.variants.some((variant) => variant.sku.toLocaleLowerCase(lang).includes(normalizedQuery));
       const matchesHealth = health === 'all' || product.variants.some((variant) => health === 'low' ? variant.stock_qty >= 1 && variant.stock_qty <= 3 : variant.stock_qty === 0);
-      return matchesCategory && matchesQuery && matchesHealth;
+      return matchesCategory && matchesBrand && matchesQuery && matchesHealth;
     });
-  }, [products, query, category, health, lang]);
+  }, [products, query, category, brand, health, lang]);
+
+  const brands = useMemo(() => [...new Set(products.map((product) => product.brand).filter((value): value is string => Boolean(value?.trim())))].sort((a, b) => a.localeCompare(b, lang)), [products, lang]);
 
   const healthCounts = useMemo(() => ({
     all: products.length,
@@ -116,7 +123,7 @@ export function InventoryPage() {
   return <div dir={dir} className="space-y-6 tabular-nums">
     <div className="flex flex-wrap items-center justify-between gap-4">
       <div><div className="flex items-center gap-3"><div className="grid size-12 place-items-center rounded-2xl bg-rose-100 text-rose-700"><Boxes className="size-6" /></div><div><h1 className="text-2xl font-black text-stone-900">{t('inventory')}</h1><p className="mt-1 text-sm text-stone-500">{t('inventorySubtitle')}</p></div></div></div>
-      <div className="flex flex-wrap gap-2"><button onClick={() => setBulkOffersOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950 shadow-sm hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><BadgePercent className="size-4" />{t('bulkOffers')}</button><button onClick={() => setCreating(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-stone-800"><PackagePlus className="size-4" />{t('addProduct')}</button></div>
+      {isOwner && <div className="flex flex-wrap gap-2"><button onClick={() => setBulkOffersOpen(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950 shadow-sm hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200"><BadgePercent className="size-4" />{t('bulkOffers')}</button><button onClick={() => setCreating(true)} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-stone-900 px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-stone-800"><PackagePlus className="size-4" />{t('addProduct')}</button></div>}
     </div>
 
     <section className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
@@ -124,7 +131,7 @@ export function InventoryPage() {
         <label className="relative flex-1"><Search className={`absolute top-3 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchPlaceholder')} className={`w-full rounded-xl border border-stone-300 py-2.5 text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label>
         <div className="flex flex-wrap gap-2"><div className="flex rounded-lg bg-stone-100 p-1">
           {([{ value: 'all', key: 'all' }, { value: 'sneakers', key: 'sneakers' }, { value: 'bags', key: 'bags' }] as const).map((option) => <button key={option.value} onClick={() => setCategory(option.value)} className={`min-h-11 rounded-md px-4 py-2 text-sm font-semibold transition ${category === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)}</button>)}
-        </div><div className="flex rounded-lg bg-stone-100 p-1">{([{ value: 'all', key: 'inventoryHealthAll' }, { value: 'low', key: 'inventoryHealthLow' }, { value: 'out', key: 'inventoryHealthOut' }] as const).map((option) => <button key={option.value} type="button" onClick={() => setHealth(option.value)} aria-pressed={health === option.value} className={`min-h-11 rounded-md px-3 py-2 text-xs font-semibold transition ${health === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)} <span className="ms-1 tabular-nums">{new Intl.NumberFormat(lang).format(healthCounts[option.value])}</span></button>)}</div></div>
+        </div><select value={brand} onChange={(event) => setBrand(event.target.value)} aria-label={t('inventoryBrandFilter')} className="h-11 rounded-lg border border-stone-300 bg-white px-3 text-start text-sm"><option value="all">{t('brandFilterAll')}</option>{brands.map((name) => <option key={name} value={name}>{name}</option>)}</select><div className="flex rounded-lg bg-stone-100 p-1">{([{ value: 'all', key: 'inventoryHealthAll' }, { value: 'low', key: 'inventoryHealthLow' }, { value: 'out', key: 'inventoryHealthOut' }] as const).map((option) => <button key={option.value} type="button" onClick={() => setHealth(option.value)} aria-pressed={health === option.value} className={`min-h-11 rounded-md px-3 py-2 text-xs font-semibold transition ${health === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)} <span className="ms-1 tabular-nums">{new Intl.NumberFormat(lang).format(healthCounts[option.value])}</span></button>)}</div></div>
       </div>
     </section>
 
@@ -135,27 +142,27 @@ export function InventoryPage() {
           const image = product.image_url ?? product.gallery_urls[0] ?? product.variants.find((variant) => variant.image_url)?.image_url ?? product.image_urls[0];
           const out = stock === 0;
           const low = stock > 0 && stock <= 3;
-          const isAutoSeller = autoBestSellerIds.has(product.id);
-          const isManualSeller = product.is_best_seller;
+          const isAutoSeller = isOwner && autoBestSellerIds.has(product.id);
+          const isManualSeller = isOwner && product.is_best_seller;
           const sellerBadge = isManualSeller && isAutoSeller ? t('adminManualAndAuto') : isManualSeller ? t('adminManualPinned') : isAutoSeller ? t('adminAutoTopSeller') : null;
           const sold30 = salesByProduct[product.id]?.sold_last_30_days ?? 0;
           return <article key={product.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm transition hover:shadow-md">
             <div className="flex gap-4 p-4 sm:p-5">
               <div className="grid aspect-[4/5] w-20 shrink-0 place-items-center overflow-hidden rounded-lg bg-stone-100 text-stone-400 sm:w-24">{image ? <img src={image} alt={product.name} className="size-full object-cover" /> : <ImagePlus className="size-7" />}</div>
-                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</div><div className="flex items-center gap-1"><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button><button onClick={() => void deleteProduct(product)} className="rounded-lg p-2 text-red-700 hover:bg-red-50" title={t('deleteProductPermanently')} aria-label={`${t('deleteProductPermanently')}: ${product.name}`}><Trash2 className="size-4" /></button></div></div>
+                <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2>{isOwner && <><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</>}</div>{isOwner && <div className="flex items-center gap-1"><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button><button onClick={() => void deleteProduct(product)} className="rounded-lg p-2 text-red-700 hover:bg-red-50" title={t('deleteProductPermanently')} aria-label={`${t('deleteProductPermanently')}: ${product.name}`}><Trash2 className="size-4" /></button></div>}</div>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span>{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span><span className={`rounded-full px-2.5 py-1 font-bold ${out ? 'bg-red-50 text-red-700' : low ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{t('stock')}: {new Intl.NumberFormat(lang).format(stock)} · {out ? t('opsOutOfStock') : low ? t('lowStock') : t('posStockInStock')}</span></div>
-                <div className="mt-4 space-y-2">{product.variants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></div></div>)}</div>
+                <div className="mt-4 space-y-2">{product.variants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span>{isOwner && <><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></>}</div></div>)}</div>
               </div>
             </div>
             <div className="flex items-center justify-between border-t border-stone-100 px-4 py-3 sm:px-5">
               <span className={`inline-flex items-center gap-2 text-xs font-semibold ${product.is_active ? 'text-emerald-700' : 'text-stone-500'}`}><span className={`size-2 rounded-full ${product.is_active ? 'bg-emerald-500' : 'bg-stone-400'}`} />{product.is_active ? t('active') : t('inactive')}</span>
-              <button disabled={savingId === product.id} onClick={() => void toggleActive(product)} className="text-xs font-bold text-rose-700 hover:text-rose-900 disabled:opacity-50">{savingId === product.id ? t('updating') : product.is_active ? t('disableProduct') : t('enableProduct')}</button>
+              {isOwner && <button disabled={savingId === product.id} onClick={() => void toggleActive(product)} className="text-xs font-bold text-rose-700 hover:text-rose-900 disabled:opacity-50">{savingId === product.id ? t('updating') : product.is_active ? t('disableProduct') : t('enableProduct')}</button>}
             </div>
           </article>;
         })}
       </div>}
     <p className="text-center text-xs text-stone-400">{t('productCount')}: {new Intl.NumberFormat(lang).format(filtered.length)} {t('of')} {new Intl.NumberFormat(lang).format(products.length)}</p>
-    {(creating || editing) && <ProductFormModal product={editing} variants={editing?.variants ?? []} onClose={() => { setCreating(false); setEditing(null); }} onSaved={loadProducts} />}
-    {bulkOffersOpen && <BulkOffersModal products={products} onClose={() => setBulkOffersOpen(false)} onApplied={loadProducts} />}
+    {isOwner && (creating || editing) && <ProductFormModal product={editing} variants={editing?.variants ?? []} onClose={() => { setCreating(false); setEditing(null); }} onSaved={loadProducts} />}
+    {isOwner && bulkOffersOpen && <BulkOffersModal products={products} onClose={() => setBulkOffersOpen(false)} onApplied={loadProducts} />}
   </div>;
 }

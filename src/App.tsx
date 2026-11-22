@@ -49,7 +49,7 @@ export default function App() {
         <Route index element={<AdminIndexRedirect />} />
         <Route path="dashboard" element={<ProtectedRoute ownerOnly><DashboardPage /></ProtectedRoute>} />
         <Route path="pos" element={<PosPage />} />
-        <Route path="inventory" element={<ProtectedRoute ownerOnly><InventoryPage /></ProtectedRoute>} />
+        <Route path="inventory" element={<InventoryPage />} />
         <Route path="orders" element={<ProtectedRoute ownerOnly><OrdersPage /></ProtectedRoute>} />
         <Route path="shifts" element={<ProtectedRoute ownerOnly><ShiftManagementPage /></ProtectedRoute>} />
       </Route>
