@@ -318,7 +318,7 @@ export function PosPage() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [alternativesRequest, checkoutOpen, heldCartsOpen, items.length, receipt, search]);
 
-  return <div dir={dir} className="grid min-w-0 gap-5 tabular-nums lg:h-[calc(100vh-12rem)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_25rem] lg:overflow-hidden">
+  return <div dir={dir} className="grid min-w-0 gap-5 tabular-nums lg:h-[calc(100vh-9rem)] lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_25rem] lg:overflow-hidden">
     <section className="min-w-0 space-y-5 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:scroll-smooth">
       <ShiftControls />
       <div className="flex flex-wrap items-center justify-between gap-3">
