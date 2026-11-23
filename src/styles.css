@@ -136,8 +136,8 @@ option { background-color: var(--surface); color: var(--ink); }
     position: fixed !important;
     inset: 0 auto auto 50% !important;
     z-index: 99999 !important;
-    width: 72mm !important;
-    max-width: 72mm !important;
+    width: 78mm !important;
+    max-width: 78mm !important;
     max-height: none !important;
     margin: 0 !important;
     padding: 4mm !important;
