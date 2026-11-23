@@ -70,7 +70,8 @@ export function DashboardPage() {
 
   const analytics = useMemo(() => {
     const revenue = orders.reduce((sum, order) => sum + Number(order.total_egp), 0);
-    const grossProfit = items.reduce((sum, item) => sum + (Number(item.unit_sell_price) - Number(item.unit_cost_price)) * item.quantity, 0);
+    const grossProfit = items.reduce((sum, item) => sum + (Number(item.unit_sell_price) - Number(item.unit_cost_price)) * item.quantity, 0)
+      - orders.reduce((sum, order) => sum + Number(order.discount_amount ?? 0), 0);
     const profit = grossProfit - returnTotal - expenseTotal;
     const sourceRevenue = { pos: 0, storefront: 0 };
     const sourceOrders = { pos: 0, storefront: 0 };

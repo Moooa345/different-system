@@ -27,7 +27,7 @@ export type ShippingZone = {
 export type Order = {
   id: string; order_number: number; customer_name: string; customer_phone: string;
   shipping_address: string | null; shipping_zone_id: string | null; channel: OrderChannel;
-  status: OrderStatus; subtotal_egp: number; shipping_fee_egp: number; total_egp: number;
+  status: OrderStatus; subtotal_egp: number; discount_amount: number; shipping_fee_egp: number; total_egp: number;
   cod_fee_egp: number; payment_method: PaymentMethod; return_loss_egp: number; notes: string | null; created_by: string | null; cashier_id: string | null; shift_id: string | null;
   created_at: string; updated_at: string;
 }

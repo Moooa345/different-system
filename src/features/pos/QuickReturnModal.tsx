@@ -104,9 +104,10 @@ export function QuickReturnModal({ products, shiftId, initialOrderId, onClose, o
     if (!selected || saving || quantity < 1 || !Number.isFinite(Number(refund)) || Number(refund) < 0) return;
     setSaving(true);
     try {
+      const linkedOrderId = orderId || null;
       const { error } = await supabase.rpc('process_product_return', {
         p_variant_id: selected.variant.id, p_quantity: quantity, p_refund_amount: Number(refund),
-        p_refund_method: method, p_order_id: orderId || null, p_reason: reason.trim() || null,
+        p_refund_method: method, p_order_id: linkedOrderId, p_reason: reason.trim() || null,
       });
       if (error) {
         console.error('[QuickReturnModal] Return RPC failed:', error);
@@ -114,6 +115,7 @@ export function QuickReturnModal({ products, shiftId, initialOrderId, onClose, o
         return;
       }
       toast.success(t('returnSuccess'));
+      window.dispatchEvent(new CustomEvent('different-store-return-processed', { detail: { orderId: linkedOrderId } }));
       onComplete(); onClose();
     } catch (error) {
       console.error('[QuickReturnModal] Unexpected return failure:', error);

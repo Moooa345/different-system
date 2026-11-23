@@ -13,6 +13,8 @@ export interface HeldPosCart {
   paymentMethod: Extract<PaymentMethod, 'cash' | 'instapay'>;
   itemCount: number;
   total: number;
+  discountMode?: 'amount' | 'final';
+  discountInput?: string;
 }
 
 interface HeldPosCartState {

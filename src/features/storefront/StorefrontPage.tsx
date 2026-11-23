@@ -28,6 +28,7 @@ export function StorefrontPage() {
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<ProductCategoryFilter>('all');
   const [brandFilter, setBrandFilter] = useState('all');
+  const [offersOnly, setOffersOnly] = useState(false);
   const [sort, setSort] = useState<'newest' | 'price-asc' | 'price-desc'>('newest');
   const [cartOpen, setCartOpen] = useState(false);
   const catalogRef = useRef<StoreProduct[]>([]);
@@ -115,6 +116,8 @@ export function StorefrontPage() {
     const filtered = products.filter((product) => {
       if (category !== 'all' && normalizeProductCategory(product.category) !== category) return false;
       if (brandFilter !== 'all' && product.brand?.trim().toLocaleLowerCase() !== brandFilter.toLocaleLowerCase()) return false;
+      const lowestPrice = Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity);
+      if (offersOnly && !(product.compare_at_price != null && product.compare_at_price > lowestPrice)) return false;
       if (!value) return true;
       return product.name.toLocaleLowerCase(lang).includes(value) || product.variants.some((variant) => variant.sku.toLocaleLowerCase(lang).includes(value));
     }).map((product) => {
@@ -127,7 +130,7 @@ export function StorefrontPage() {
     if (sort === 'price-asc') return filtered.sort((a, b) => Math.min(...a.variants.map((v) => v.unit_sell_price), Infinity) - Math.min(...b.variants.map((v) => v.unit_sell_price), Infinity));
     if (sort === 'price-desc') return filtered.sort((a, b) => Math.min(...b.variants.map((v) => v.unit_sell_price), Infinity) - Math.min(...a.variants.map((v) => v.unit_sell_price), Infinity));
     return filtered;
-  }, [products, query, category, brandFilter, lang, sort]);
+  }, [products, query, category, brandFilter, offersOnly, lang, sort]);
 
   const brandOptions = useMemo(() => {
     const options = new Map<string, string>();
@@ -144,11 +147,14 @@ export function StorefrontPage() {
     .sort((a, b) => Number(b.is_best_seller) - Number(a.is_best_seller)
       || (monthlySales[b.id] ?? 0) - (monthlySales[a.id] ?? 0)
       || a.name.localeCompare(b.name));
-  const bestSellerIds = new Set(bestSellerProducts.map((product) => product.id));
-  const offerProducts = visibleProducts.filter((product) => {
+  const offerProducts = products.filter((product) => {
     const sellPrice = Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity);
-    return !bestSellerIds.has(product.id) && Number.isFinite(sellPrice) && product.compare_at_price != null && product.compare_at_price > sellPrice;
-  });
+    return Number.isFinite(sellPrice) && product.compare_at_price != null && product.compare_at_price > sellPrice;
+  }).sort((a, b) => {
+    const aBest = a.is_best_seller || autoBestSellerIds.has(a.id);
+    const bBest = b.is_best_seller || autoBestSellerIds.has(b.id);
+    return Number(aBest) - Number(bBest) || Number(b.is_best_seller) - Number(a.is_best_seller) || a.name.localeCompare(b.name);
+  }).slice(0, 8);
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.qty, 0);
   const renderProductCard = (product: StoreProduct) => {
@@ -195,6 +201,11 @@ export function StorefrontPage() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div><h2 className="text-xl font-black">{category === 'all' ? t('storeCollection') : category === 'bags' ? t('posBags') : t('posShoes')}</h2><p className="mt-1 text-sm text-stone-500">{t('storeCatalogHint')}</p></div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row"><label className="relative w-full sm:w-64"><Search className={`absolute top-3.5 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('storeSearchPlaceholder')} className={`h-12 w-full rounded-xl border border-stone-300 bg-white text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label><label className="flex items-center gap-2 text-xs font-semibold text-stone-600"><span className="sr-only">{t('sortLabel')}</span><select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} aria-label={t('sortLabel')} className="h-12 w-full rounded-xl border border-stone-300 bg-white px-3 text-sm sm:w-52"><option value="newest">{t('sortNewest')}</option><option value="price-asc">{t('sortPriceLow')}</option><option value="price-desc">{t('sortPriceHigh')}</option></select></label></div>
+      </div>
+
+      <div className="mb-5 flex flex-wrap gap-2" aria-label={t('storeCategoryFilter')}>
+        {([{ value: 'all', label: t('posAllCategories') }, { value: 'bags', label: t('posBags') }, { value: 'sneakers', label: t('posShoes') }] as const).map((option) => <button key={option.value} type="button" aria-pressed={category === option.value} onClick={() => setCategory(option.value)} className={`min-h-10 rounded-full border px-4 text-xs font-semibold ${category === option.value ? 'border-stone-900 bg-stone-900 text-white dark:border-[#C8A86B] dark:bg-[#C8A86B] dark:text-[#141413]' : 'border-stone-200 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300'}`}>{option.label}</button>)}
+        <button type="button" aria-pressed={offersOnly} onClick={() => setOffersOnly((value) => !value)} className={`min-h-10 rounded-full border px-4 text-xs font-semibold ${offersOnly ? 'border-amber-700 bg-amber-700 text-white dark:border-[#C8A86B] dark:bg-[#C8A86B] dark:text-[#141413]' : 'border-stone-200 bg-white text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300'}`}>{t('offersOnly')}</button>
       </div>
 
       <section aria-label={t('brandFilterAll')} className="mb-7 space-y-3">
