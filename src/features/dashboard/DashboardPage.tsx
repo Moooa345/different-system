@@ -42,8 +42,8 @@ export function DashboardPage() {
     }
     const [{ data: orderRows, error }, { data: variants }, { data: outVariants }, { data: todayRows }, { data: pendingRows }, { data: returnRows }, { data: returnedOrderRows }, { data: expenseRows }] = await Promise.all([
       orderQuery,
-      supabase.from('product_variants').select('id').eq('is_active', true).gte('stock_qty', 1).lte('stock_qty', 3),
-      supabase.from('product_variants').select('id').eq('is_active', true).eq('stock_qty', 0),
+      supabase.from('product_variants').select('id').gte('stock_qty', 1).lte('stock_qty', 3),
+      supabase.from('product_variants').select('id').eq('stock_qty', 0),
       supabase.from('orders').select('channel, created_at').gte('created_at', todayStart.toISOString()),
       supabase.from('orders').select('id').eq('channel', 'storefront').eq('status', 'pending'),
       returnsQuery,
@@ -101,7 +101,7 @@ export function DashboardPage() {
     { label: t('revenue'), value: formatCurrency(analytics.revenue), icon: Coins, tone: 'bg-emerald-50 text-emerald-700' },
     { label: t('estimatedProfit'), value: formatCurrency(analytics.profit), icon: ArrowUpRight, tone: 'bg-rose-50 text-rose-700' },
     { label: t('totalOrders'), value: new Intl.NumberFormat(lang).format(orders.length), sub: `${t('sourceOnline')}: ${analytics.sourceOrders.storefront} · ${t('sourcePos')}: ${analytics.sourceOrders.pos}`, icon: ShoppingBag, tone: 'bg-sky-50 text-sky-700' },
-    { label: t('lowStockAlerts'), value: new Intl.NumberFormat(lang).format(lowStock), icon: Boxes, tone: 'bg-amber-50 text-amber-700', link: '/admin/inventory?stock=low' },
+    { label: t('opsLowStock'), value: new Intl.NumberFormat(lang).format(lowStock), icon: Boxes, tone: 'bg-amber-50 text-amber-700', link: '/admin/inventory?stock=low' },
   ];
   const operationsCards = [
     { label: t('opsTodayRevenue'), value: formatCurrency(todayRevenue), icon: Coins, tone: 'bg-emerald-50 text-emerald-700' },
