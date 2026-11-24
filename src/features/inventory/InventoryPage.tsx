@@ -18,14 +18,15 @@ export function InventoryPage() {
   const { t, dir, lang, formatCurrency } = useTranslation();
   const role = useStaffStore((state) => state.role);
   const isOwner = role === 'owner';
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [products, setProducts] = useState<ProductWithVariants[]>([]);
   const [salesByProduct, setSalesByProduct] = useState<Record<string, { sold_last_30_days: number; total_sold: number }>>({});
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<CategoryFilter>('all');
   const [brand, setBrand] = useState('all');
-  const [health, setHealth] = useState<HealthFilter>((searchParams.get('health') as HealthFilter) || 'all');
+  const requestedStockFilter = searchParams.get('stock') ?? searchParams.get('health');
+  const health: HealthFilter = requestedStockFilter === 'low' || requestedStockFilter === 'out' ? requestedStockFilter : 'all';
   const [editing, setEditing] = useState<ProductWithVariants | null>(null);
   const [creating, setCreating] = useState(false);
   const [bulkOffersOpen, setBulkOffersOpen] = useState(false);
@@ -85,6 +86,14 @@ export function InventoryPage() {
     out: products.filter((product) => product.variants.some((variant) => variant.stock_qty === 0)).length,
   }), [products]);
 
+  function setStockFilter(next: HealthFilter) {
+    const params = new URLSearchParams(searchParams);
+    params.delete('health');
+    if (next === 'all') params.delete('stock');
+    else params.set('stock', next);
+    setSearchParams(params, { replace: true });
+  }
+
   const monthlySales = useMemo(() => Object.fromEntries(Object.entries(salesByProduct).map(([id, stats]) => [id, stats.sold_last_30_days])), [salesByProduct]);
   const autoBestSellerIds = useMemo(() => getAutoBestSellerIds(products, monthlySales), [products, monthlySales]);
 
@@ -131,17 +140,18 @@ export function InventoryPage() {
         <label className="relative flex-1"><Search className={`absolute top-3 size-4 text-stone-400 ${dir === 'rtl' ? 'end-3' : 'start-3'}`} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('searchPlaceholder')} className={`w-full rounded-xl border border-stone-300 py-2.5 text-sm outline-none focus:border-rose-500 focus:ring-2 focus:ring-rose-100 ${dir === 'rtl' ? 'pe-10 ps-4' : 'ps-10 pe-4'}`} /></label>
         <div className="flex flex-wrap gap-2"><div className="flex rounded-lg bg-stone-100 p-1">
           {([{ value: 'all', key: 'all' }, { value: 'sneakers', key: 'sneakers' }, { value: 'bags', key: 'bags' }] as const).map((option) => <button key={option.value} onClick={() => setCategory(option.value)} className={`min-h-11 rounded-md px-4 py-2 text-sm font-semibold transition ${category === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)}</button>)}
-        </div><select value={brand} onChange={(event) => setBrand(event.target.value)} aria-label={t('inventoryBrandFilter')} className="h-11 rounded-lg border border-stone-300 bg-white px-3 text-start text-sm"><option value="all">{t('brandFilterAll')}</option>{brands.map((name) => <option key={name} value={name}>{name}</option>)}</select><div className="flex rounded-lg bg-stone-100 p-1">{([{ value: 'all', key: 'inventoryHealthAll' }, { value: 'low', key: 'inventoryHealthLow' }, { value: 'out', key: 'inventoryHealthOut' }] as const).map((option) => <button key={option.value} type="button" onClick={() => setHealth(option.value)} aria-pressed={health === option.value} className={`min-h-11 rounded-md px-3 py-2 text-xs font-semibold transition ${health === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)} <span className="ms-1 tabular-nums">{new Intl.NumberFormat(lang).format(healthCounts[option.value])}</span></button>)}</div></div>
+        </div><select value={brand} onChange={(event) => setBrand(event.target.value)} aria-label={t('inventoryBrandFilter')} className="h-11 rounded-lg border border-stone-300 bg-white px-3 text-start text-sm"><option value="all">{t('brandFilterAll')}</option>{brands.map((name) => <option key={name} value={name}>{name}</option>)}</select><div className="flex rounded-lg bg-stone-100 p-1">{([{ value: 'all', key: 'inventoryHealthAll' }, { value: 'low', key: 'inventoryHealthLow' }, { value: 'out', key: 'inventoryHealthOut' }] as const).map((option) => <button key={option.value} type="button" onClick={() => setStockFilter(option.value)} aria-pressed={health === option.value} className={`min-h-11 rounded-md px-3 py-2 text-xs font-semibold transition ${health === option.value ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500 hover:text-stone-800'}`}>{t(option.key)} <span className="ms-1 tabular-nums">{new Intl.NumberFormat(lang).format(healthCounts[option.value])}</span></button>)}</div></div>
       </div>
     </section>
 
     {loading ? <div className="grid min-h-56 place-items-center text-stone-500"><div className="flex items-center gap-3"><LoaderCircle className="size-5 animate-spin" />{t('loadingInventory')}</div></div> : filtered.length === 0 ? <div className="rounded-2xl border border-dashed border-stone-300 bg-white py-16 text-center"><div className="mx-auto mb-3 grid size-12 place-items-center rounded-full bg-stone-100 text-stone-500"><Boxes /></div><p className="font-semibold text-stone-700">{t('noProducts')}</p><p className="mt-1 text-sm text-stone-500">{t('noProductsHint')}</p></div> :
       <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
         {filtered.map((product) => {
-          const stock = product.variants.reduce((total, variant) => total + variant.stock_qty, 0);
+          const visibleVariants = health === 'all' ? product.variants : product.variants.filter((variant) => health === 'low' ? variant.stock_qty >= 1 && variant.stock_qty <= 3 : variant.stock_qty === 0);
+          const stock = visibleVariants.reduce((total, variant) => total + variant.stock_qty, 0);
           const image = product.image_url ?? product.gallery_urls[0] ?? product.variants.find((variant) => variant.image_url)?.image_url ?? product.image_urls[0];
-          const out = stock === 0;
-          const low = stock > 0 && stock <= 3;
+          const out = health === 'out' || stock === 0;
+          const low = health === 'low' || (stock > 0 && stock <= 3);
           const isAutoSeller = isOwner && autoBestSellerIds.has(product.id);
           const isManualSeller = isOwner && product.is_best_seller;
           const sellerBadge = isManualSeller && isAutoSeller ? t('adminManualAndAuto') : isManualSeller ? t('adminManualPinned') : isAutoSeller ? t('adminAutoTopSeller') : null;
@@ -150,8 +160,8 @@ export function InventoryPage() {
             <div className="flex gap-4 p-4 sm:p-5">
               <div className="grid size-20 aspect-square shrink-0 place-items-center overflow-hidden rounded-lg bg-stone-100 text-stone-400 sm:size-24">{image ? <img src={image} alt={product.name} className="size-full object-cover" /> : <ImagePlus className="size-7" />}</div>
                 <div className="min-w-0 flex-1"><div className="flex flex-wrap items-start justify-between gap-2"><div><div className="flex flex-wrap items-center gap-1.5"><span className="rounded-full bg-stone-100 px-2.5 py-1 text-xs font-semibold text-stone-600">{product.category === 'bags' ? t('bags') : t('sneakers')}</span>{product.brand && <span className="rounded-full border border-stone-200 px-2.5 py-1 text-xs font-medium text-stone-600">{product.brand}</span>}{sellerBadge && <span className="rounded-full border border-[#C8A86A]/50 bg-stone-900 px-2.5 py-1 text-xs font-semibold text-[#D4AF37]">{sellerBadge}</span>}</div><h2 className="mt-2 truncate text-start font-bold text-stone-900">{product.name}</h2>{isOwner && <><p className="mt-1 text-[11px] text-stone-500">{t('adminSold30Days')}: <span className="font-bold tabular-nums text-stone-700">{new Intl.NumberFormat(lang).format(sold30)}</span></p>{product.compare_at_price != null && product.compare_at_price > Math.min(...product.variants.map((variant) => variant.unit_sell_price), Infinity) && <p className="mt-1 text-xs font-medium text-emerald-700">{t('offerActive')}</p>}</>}</div>{isOwner && <div className="flex items-center gap-1"><button onClick={() => setEditing(product)} className="rounded-lg p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-900" title={t('editProduct')} aria-label={`${t('editProduct')}: ${product.name}`}><Pencil className="size-4" /></button><button onClick={() => void deleteProduct(product)} className="rounded-lg p-2 text-red-700 hover:bg-red-50" title={t('deleteProductPermanently')} aria-label={`${t('deleteProductPermanently')}: ${product.name}`}><Trash2 className="size-4" /></button></div>}</div>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span>{new Intl.NumberFormat(lang).format(product.variants.length)} {t('variants')}</span><span className={`rounded-full px-2.5 py-1 font-bold ${out ? 'bg-red-50 text-red-700' : low ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{t('stock')}: {new Intl.NumberFormat(lang).format(stock)} · {out ? t('opsOutOfStock') : low ? t('lowStock') : t('posStockInStock')}</span></div>
-                <div className="mt-4 space-y-2">{product.variants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span>{isOwner && <><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></>}</div></div>)}</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-stone-500"><span>{new Intl.NumberFormat(lang).format(visibleVariants.length)} {t('variants')}</span><span className={`rounded-full px-2.5 py-1 font-bold ${out ? 'bg-red-50 text-red-700' : low ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{t('stock')}: {new Intl.NumberFormat(lang).format(stock)} · {out ? t('opsOutOfStock') : low ? t('lowStock') : t('posStockInStock')}</span></div>
+                <div className="mt-4 space-y-2">{visibleVariants.map((variant) => <div key={variant.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-2"><div className="min-w-0"><p className="truncate text-xs font-semibold text-stone-700">{variant.color?.trim() || t('oneColor')} · {variant.size?.trim() || t('pdpNoSize')} · {variant.sku}</p><p className="mt-0.5 text-[11px] text-stone-500">{formatCurrency(Number(variant.unit_sell_price))}</p></div><div className="flex items-center gap-1.5"><span className={`min-w-8 text-center text-xs font-black ${variant.stock_qty === 0 ? 'text-red-700' : variant.stock_qty <= 3 ? 'text-amber-800' : 'text-emerald-700'}`}>{new Intl.NumberFormat(lang).format(variant.stock_qty)}</span>{isOwner && <><button type="button" disabled={Boolean(savingStockId) || variant.stock_qty === 0} onClick={() => void adjustStock(variant, -1)} aria-label={`${t('adjustmentDecrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-not-allowed disabled:opacity-40">−</button><button type="button" disabled={Boolean(savingStockId)} onClick={() => void adjustStock(variant, 1)} aria-label={`${t('adjustmentIncrease')}: ${variant.sku}`} className="grid size-11 place-items-center rounded-md border border-stone-200 bg-white text-sm font-black text-stone-700 disabled:cursor-wait disabled:opacity-50">{savingStockId === variant.id ? <LoaderCircle className="size-4 animate-spin" /> : '+'}</button></>}</div></div>)}</div>
               </div>
             </div>
             <div className="flex items-center justify-between border-t border-stone-100 px-4 py-3 sm:px-5">
