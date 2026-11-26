@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { LoaderCircle, UserPlus } from 'lucide-react';
+import { LoaderCircle, Trash2, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../../lib/supabase';
 import { useTranslation } from '../../i18n/useTranslation';
 import { formatDurationMinutes } from '../../utils/formatDurationMinutes';
+import { useAuthStore } from '../../store/authStore';
 
 type Template = { id: string; name_ar: string; name_en: string; start_time: string; end_time: string; grace_minutes: number; is_active: boolean };
 type Shift = { id: string; cashier_name: string | null; cashier_id: string; scheduled_start_at: string; scheduled_end_at: string | null; opened_at: string; closed_at: string | null; status: string; punctuality_status: 'early' | 'on_time' | 'late'; punctuality_diff_minutes: number; checkout_status: 'overtime' | 'on_time' | 'early_leave' | null; checkout_diff_minutes: number | null; opening_cash_egp: number; expected_cash_egp: number | null; actual_closing_cash_egp: number | null; cash_variance_egp: number | null };
@@ -12,6 +13,7 @@ type Accountability = { cashier_id: string; cashier_name: string; total_late_min
 
 export function ShiftManagementPage() {
   const { t, lang, dir, formatCurrency } = useTranslation();
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [templateDraft, setTemplateDraft] = useState<Template | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -20,6 +22,7 @@ export function ShiftManagementPage() {
   const [email, setEmail] = useState('');
   const [staffName, setStaffName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [deletingStaffId, setDeletingStaffId] = useState<string | null>(null);
   const load = useCallback(async () => {
     const [{ data: templateRows, error: templateError }, { data: shiftRows, error: shiftError }, { data: staffRows, error: staffError }, { data: totalsRows, error: totalsError }] = await Promise.all([
       supabase.from('shift_templates').select('*').order('start_time'),
@@ -56,22 +59,71 @@ export function ShiftManagementPage() {
     formElement.reset();
     await load();
   }
+  function staffErrorMessage(message: string) {
+    const normalized = message.toLowerCase();
+    if (normalized.includes('last active owner')) return t('staffLastOwnerBlocked');
+    if (normalized.includes('own') && (normalized.includes('owner') || normalized.includes('staff account'))) return t('staffSelfChangeBlocked');
+    if (normalized.includes('sales or shift history')) return t('staffDeleteHasHistory');
+    return t('shiftLoadError');
+  }
   async function assignCashier(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     const { error } = await supabase.rpc('assign_staff_role', { p_email: email.trim(), p_role: 'cashier', p_display_name: staffName.trim() || null });
     setBusy(false);
-    if (error) { toast.error(error.message); return; }
-    setEmail(''); setStaffName(''); toast.success(t('staffAssigned'));
+    if (error) { toast.error(staffErrorMessage(error.message)); return; }
+    setEmail(''); setStaffName(''); toast.success(t('staffAssigned')); await load();
   }
   async function updateStaff(account: StaffAccount, patch: Partial<Pick<StaffAccount, 'role' | 'is_active'>>) {
-    if (patch.role && account.email) {
-      const { error } = await supabase.rpc('assign_staff_role', { p_email: account.email, p_role: patch.role, p_display_name: account.display_name });
-      if (error) { toast.error(t('shiftLoadError')); return; }
-    } else {
-      const { error } = await supabase.from('staff_accounts').update(patch).eq('user_id', account.user_id);
-      if (error) { toast.error(t('shiftLoadError')); return; }
+    const activeOwnerCount = staff.filter((entry) => entry.role === 'owner' && entry.is_active).length;
+    if (account.user_id === currentUserId && account.role === 'owner' && patch.role === 'cashier') {
+      toast.error(t('staffSelfChangeBlocked'));
+      return;
     }
+    if (account.user_id === currentUserId && account.is_active && patch.is_active === false) {
+      toast.error(t('staffSelfChangeBlocked'));
+      return;
+    }
+    if (account.role === 'owner' && account.is_active && activeOwnerCount <= 1 && (patch.role === 'cashier' || patch.is_active === false)) {
+      toast.error(t('staffLastOwnerBlocked'));
+      return;
+    }
+    if (patch.role) {
+      if (!account.email) { toast.error(t('shiftLoadError')); return; }
+      const { error } = await supabase.rpc('assign_staff_role', { p_email: account.email, p_role: patch.role, p_display_name: account.display_name });
+      if (error) { toast.error(staffErrorMessage(error.message)); return; }
+    } else {
+      const { error } = await supabase.rpc('set_staff_account_active', { p_user_id: account.user_id, p_is_active: patch.is_active ?? account.is_active });
+      if (error) { toast.error(staffErrorMessage(error.message)); return; }
+    }
+    await load();
+  }
+  async function deleteStaff(account: StaffAccount) {
+    const activeOwnerCount = staff.filter((entry) => entry.role === 'owner' && entry.is_active).length;
+    if (account.user_id === currentUserId) { toast.error(t('staffSelfChangeBlocked')); return; }
+    if (account.role === 'owner' && account.is_active && activeOwnerCount <= 1) { toast.error(t('staffLastOwnerBlocked')); return; }
+    if (!window.confirm(t('staffDeleteConfirm'))) return;
+
+    setDeletingStaffId(account.user_id);
+    const [{ count: shiftCount, error: shiftError }, { count: orderCount, error: orderError }] = await Promise.all([
+      supabase.from('shifts').select('id', { count: 'exact', head: true }).eq('cashier_id', account.user_id),
+      supabase.from('orders').select('id', { count: 'exact', head: true }).or(`cashier_id.eq.${account.user_id},created_by.eq.${account.user_id}`),
+    ]);
+    if (shiftError || orderError) {
+      setDeletingStaffId(null);
+      toast.error(t('shiftLoadError'));
+      return;
+    }
+    if ((shiftCount ?? 0) > 0 || (orderCount ?? 0) > 0) {
+      setDeletingStaffId(null);
+      toast.error(t('staffDeleteHasHistory'));
+      return;
+    }
+
+    const { error } = await supabase.rpc('delete_staff_account_safe', { p_user_id: account.user_id });
+    setDeletingStaffId(null);
+    if (error) { toast.error(staffErrorMessage(error.message)); return; }
+    toast.success(t('staffDeleted'));
     await load();
   }
 
@@ -101,7 +153,15 @@ export function ShiftManagementPage() {
       <form onSubmit={(event) => void addTemplate(event)} className="mt-4 grid gap-3 rounded-md bg-stone-50 p-3 sm:grid-cols-2 lg:grid-cols-6"><input required name="name_ar" placeholder={t('shiftTemplate')} className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm" /><input required name="name_en" placeholder={t('shiftTemplate')} className="h-10 rounded-md border border-stone-300 bg-white px-3 text-sm" /><input required name="start_time" type="time" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><input required name="end_time" type="time" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><input name="grace_minutes" type="number" min="0" defaultValue="5" className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm" /><button disabled={busy} className="flex h-10 items-center justify-center gap-2 rounded-md bg-stone-900 px-3 text-sm font-bold text-white">{busy && <LoaderCircle className="size-4 animate-spin" />}{t('shiftAddTemplate')}</button></form>
     </section>
     <form onSubmit={(event) => void assignCashier(event)} className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6"><h2 className="text-lg font-bold text-stone-900">{t('staffManagement')}</h2><p className="mt-1 text-sm text-stone-500">{t('staffRoleCashier')} · {t('staffEmail')}</p><div className="mt-4 grid gap-3 sm:grid-cols-[1fr_1fr_auto]"><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('staffEmail')} className="h-11 rounded-md border border-stone-300 px-3 text-sm" /><input value={staffName} onChange={(event) => setStaffName(event.target.value)} placeholder={t('staffName')} className="h-11 rounded-md border border-stone-300 px-3 text-sm" /><button disabled={busy} className="flex h-11 items-center justify-center gap-2 rounded-md bg-stone-900 px-4 text-sm font-bold text-white"><UserPlus className="size-4" />{t('assignCashier')}</button></div></form>
-    {staff.length > 0 && <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6"><h2 className="text-lg font-bold text-stone-900">{t('staffManagement')}</h2><div className="mt-3 divide-y divide-stone-100">{staff.map((account) => <div key={account.user_id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="font-semibold text-stone-800">{account.display_name || account.email || account.user_id}</p><p dir="ltr" className="text-xs text-stone-500">{account.email}</p></div><div className="flex items-center gap-2"><select value={account.role} onChange={(event) => void updateStaff(account, { role: event.target.value as 'owner' | 'cashier' })} aria-label={t('staffRoleCashier')} className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm"><option value="cashier">{t('staffRoleCashier')}</option><option value="owner">{t('staffRoleOwner')}</option></select><button type="button" onClick={() => void updateStaff(account, { is_active: !account.is_active })} className={`h-10 rounded-md border px-3 text-xs font-bold ${account.is_active ? 'border-emerald-300 text-emerald-800' : 'border-stone-300 text-stone-500'}`}>{account.is_active ? t('active') : t('inactive')}</button></div></div>)}</div></section>}
+    {staff.length > 0 && <section className="rounded-lg border border-stone-200 bg-white p-4 sm:p-6"><h2 className="text-lg font-bold text-stone-900">{t('staffManagement')}</h2><div className="mt-3 divide-y divide-stone-100">{staff.map((account) => {
+      const activeOwnerCount = staff.filter((entry) => entry.role === 'owner' && entry.is_active).length;
+      const isCurrentOwner = account.user_id === currentUserId && account.role === 'owner';
+      const isLastActiveOwner = account.role === 'owner' && account.is_active && activeOwnerCount <= 1;
+      const roleDisabledReason = isCurrentOwner ? t('staffSelfChangeBlocked') : isLastActiveOwner ? t('staffLastOwnerBlocked') : undefined;
+      const activeDisabledReason = account.is_active && isCurrentOwner ? t('staffSelfChangeBlocked') : isLastActiveOwner ? t('staffLastOwnerBlocked') : undefined;
+      const deleteDisabledReason = isCurrentOwner ? t('staffSelfChangeBlocked') : isLastActiveOwner ? t('staffLastOwnerBlocked') : undefined;
+      return <div key={account.user_id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><p className="font-semibold text-stone-800">{account.display_name || account.email || account.user_id}</p><p dir="ltr" className="text-xs text-stone-500">{account.email}</p></div><div className="flex items-center gap-2"><span title={roleDisabledReason} className="inline-flex"><select value={account.role} onChange={(event) => void updateStaff(account, { role: event.target.value as 'owner' | 'cashier' })} aria-label={t('staffRoleCashier')} title={roleDisabledReason} disabled={Boolean(roleDisabledReason)} className="h-10 rounded-md border border-stone-300 bg-white px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"><option value="cashier">{t('staffRoleCashier')}</option><option value="owner">{t('staffRoleOwner')}</option></select></span><span title={activeDisabledReason} className="inline-flex"><button type="button" onClick={() => void updateStaff(account, { is_active: !account.is_active })} title={activeDisabledReason} disabled={Boolean(activeDisabledReason)} className={`h-10 rounded-md border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-50 ${account.is_active ? 'border-emerald-300 text-emerald-800' : 'border-stone-300 text-stone-500'}`}>{account.is_active ? t('active') : t('inactive')}</button></span><span title={deleteDisabledReason} className="inline-flex"><button type="button" onClick={() => void deleteStaff(account)} disabled={Boolean(deleteDisabledReason) || deletingStaffId === account.user_id} title={deleteDisabledReason ?? t('staffDelete')} aria-label={`${t('staffDelete')}: ${account.display_name || account.email || account.user_id}`} className="inline-flex h-10 items-center gap-1 rounded-md border border-red-200 px-3 text-xs font-bold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">{deletingStaffId === account.user_id ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}{t('staffDelete')}</button></span></div></div>;
+    })}</div></section>}
     <section className="overflow-hidden rounded-lg border border-stone-200 bg-white">
       <div className="border-b border-stone-200 p-4"><h2 className="text-lg font-bold text-stone-900">{t('shiftAccountability')}</h2></div>
       <div className="overflow-x-auto"><table className="w-full min-w-[520px] text-start text-sm"><thead className="bg-stone-50 text-xs text-stone-500"><tr>{[t('staffName'), t('shiftTotalLate'), t('shiftTotalOvertime')].map((label) => <th key={label} className="px-4 py-3 text-start">{label}</th>)}</tr></thead><tbody className="divide-y divide-stone-100">{accountability.map((row) => <tr key={row.cashier_id}><td className="px-4 py-3 font-semibold text-stone-800">{row.cashier_name}</td><td className="px-4 py-3 font-bold tabular-nums text-amber-800">{formatDurationMinutes(Number(row.total_late_minutes), lang)}</td><td className="px-4 py-3 font-bold tabular-nums text-emerald-800">{formatDurationMinutes(Number(row.total_overtime_minutes), lang)}</td></tr>)}</tbody></table>{accountability.length === 0 && <p className="p-5 text-sm text-stone-500">{t('shiftNoAccountability')}</p>}</div>

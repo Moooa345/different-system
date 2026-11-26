@@ -73,6 +73,8 @@ export interface Database {
       is_owner: { Args: Record<string, never>; Returns: boolean };
       get_owner_variant_costs: { Args: Record<string, never>; Returns: { variant_id: string; unit_cost_price: number }[] };
       assign_staff_role: { Args: { p_email: string; p_role: string; p_display_name?: string | null }; Returns: string };
+      set_staff_account_active: { Args: { p_user_id: string; p_is_active: boolean }; Returns: undefined };
+      delete_staff_account_safe: { Args: { p_user_id: string }; Returns: undefined };
       open_cashier_shift: { Args: { p_template_id: string; p_opening_cash?: number }; Returns: Database['public']['Tables']['shifts']['Row'] };
       close_cashier_shift: { Args: { p_shift_id: string; p_actual_closing_cash: number; p_notes?: string | null }; Returns: Database['public']['Tables']['shifts']['Row'] };
       get_shift_accountability_summary: { Args: Record<string, never>; Returns: { cashier_id: string; cashier_name: string; total_late_minutes: number; total_overtime_minutes: number }[] };
